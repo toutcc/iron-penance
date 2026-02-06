@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Soulslike 2D (3 arquivos)</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="hud">
+    <div class="bar">
+      <div class="label">HP</div>
+      <div class="track"><div id="hpFill" class="fill"></div></div>
+      <div id="hpText" class="text"></div>
+    </div>
+
+    <div class="bar">
+      <div class="label">ST</div>
+      <div class="track"><div id="stFill" class="fill"></div></div>
+      <div id="stText" class="text"></div>
+    </div>
+
+    <div class="row">
+      <div class="pill">Souls: <span id="soulsText">0</span></div>
+      <div class="pill">Checkpoint: <span id="cpText">—</span></div>
+      <div class="pill">FPS: <span id="fpsText">0</span></div>
+    </div>
+
+    <div class="help">
+      <b>Controles</b>:
+      A/D ou ←/→ mover • W/↑/Espaço pular • J atacar • K rolar • E descansar (bonfire) • R reiniciar
+    </div>
+  </div>
+
+  <canvas id="game" width="960" height="540" aria-label="Soulslike 2D"></canvas>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="game.js"></script>
+</body>
+</html>
