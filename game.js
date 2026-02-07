@@ -1,4 +1,15 @@
+import { auth } from "./firebaseConfig.js";
+
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  onAuthStateChanged,
+  signOut
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+
 (() => {
+  
     "use strict";
   
     // ===== Canvas =====
@@ -15,6 +26,7 @@
     const cpText = document.getElementById("cpText");
     const fpsText = document.getElementById("fpsText");
     const toastEl = document.getElementById("toast");
+    
   
     const toast = (msg, ms = 1300) => {
       toastEl.textContent = msg;
