@@ -584,6 +584,7 @@ import {
       if (state === "game") {
         keys.add(key);
         if (key === "q" && !e.repeat) input.drink = true;
+        if (key === "i" && !e.repeat) input.execute = true;
         if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
         return;
       }
@@ -621,12 +622,14 @@ import {
       attack:false,
       roll:false,
       drink:false,
+      execute:false,
     };
   
     function consumeActions(){
       input.attack = false;
       input.roll = false;
       input.drink = false;
+      input.execute = false;
     }
   
     // ===== World =====
@@ -700,8 +703,8 @@ import {
   
     function makeEnemy(x, y, kind="hollow"){
       const base = (kind === "knight")
-        ? {hpMax: 160, dmg: 22, speed: 150, aggro: 520, windup: 0.33, cooldown: 0.65}
-        : {hpMax: 90, dmg: 14, speed: 120, aggro: 420, windup: 0.28, cooldown: 0.70};
+        ? {hpMax: 160, dmg: 22, speed: 150, aggro: 520, windup: 0.33, cooldown: 0.65, poiseMax: 90}
+        : {hpMax: 90, dmg: 14, speed: 120, aggro: 420, windup: 0.28, cooldown: 0.70, poiseMax: 60};
   
       return {
         kind,
@@ -712,6 +715,9 @@ import {
         onGround: false,
         hp: base.hpMax,
         hpMax: base.hpMax,
+        poiseMax: base.poiseMax,
+        poise: base.poiseMax,
+        staggerT: 0,
   
         // ai
         state: "idle", // idle, chase, windup, attack, recover, dead
@@ -753,8 +759,15 @@ import {
       cam.shakeMag = Math.max(cam.shakeMag, magnitude);
     };
 
-    const spawnHitParticles = (x, y) => {
-      const count = 3 + Math.floor(Math.random() * 4);
+    const spawnHitParticles = (x, y, options = {}) => {
+      const {
+        countMin = 3,
+        countMax = 6,
+        color = "rgba(255,210,120,.9)",
+        sizeMin = 2,
+        sizeMax = 5,
+      } = options;
+      const count = countMin + Math.floor(Math.random() * (countMax - countMin + 1));
       for (let i = 0; i < count; i++){
         hitParticles.push({
           x,
@@ -762,9 +775,20 @@ import {
           vx: (Math.random() * 140 + 60) * (Math.random() < 0.5 ? -1 : 1),
           vy: -Math.random() * 160 - 60,
           life: 0.12 + Math.random() * 0.08,
-          size: 2 + Math.random() * 3
+          size: sizeMin + Math.random() * (sizeMax - sizeMin),
+          color
         });
       }
+    };
+
+    const spawnExecutionParticles = (x, y) => {
+      spawnHitParticles(x, y, {
+        countMin: 10,
+        countMax: 16,
+        color: "rgba(245,245,255,.95)",
+        sizeMin: 3,
+        sizeMax: 6,
+      });
     };
   
     function centerCamera(){
@@ -857,18 +881,71 @@ import {
       const y = player.y + 12;
       return {x, y, w, h};
     }
+
+    function triggerStagger(ent){
+      ent.state = "stagger";
+      ent.staggerT = 0.75;
+      ent.t = 0;
+      ent.vx *= 0.4;
+      ent.poise = 0;
+    }
   
-    function damageEntity(ent, amount, knockX){
+    function damageEntity(ent, amount, knockX, poiseDamage = amount){
       if (ent.invulT > 0 || ent.hp <= 0) return { hit: false, killed: false };
       ent.hp -= amount;
       ent.invulT = 0.18;
       ent.hitT = 0.15;
       ent.vx += knockX;
+      if (ent.poiseMax != null){
+        ent.poise = Math.max(0, ent.poise - poiseDamage);
+        if (ent.hp > 0 && ent.poise <= 0 && ent.state !== "stagger"){
+          triggerStagger(ent);
+        }
+      }
       if (ent.hp <= 0){
         ent.hp = 0;
         return { hit: true, killed: true };
       }
       return { hit: true, killed: false };
+    }
+
+    function getEnemySoulValue(e){
+      return (e.kind === "knight") ? 180 : 90;
+    }
+
+    function getExecutionBonus(e){
+      return (e.kind === "knight") ? 120 : 60;
+    }
+
+    function tryExecute(){
+      const px = player.x + player.w / 2;
+      const py = player.y + player.h / 2;
+      let best = null;
+      let bestD = 72;
+      for (const e of enemies){
+        if (e.hp <= 0 || e.state !== "stagger") continue;
+        const ex = e.x + e.w / 2;
+        const ey = e.y + e.h / 2;
+        const d = Math.hypot(px - ex, py - ey);
+        if (d <= bestD){
+          bestD = d;
+          best = e;
+        }
+      }
+      if (!best) return;
+      const ex = best.x + best.w / 2;
+      const ey = best.y + best.h / 2;
+      const total = getEnemySoulValue(best) + getExecutionBonus(best);
+      best.hp = 0;
+      best.state = "dead";
+      best.staggerT = 0;
+      best.vx *= 0.2;
+      best.poise = 0;
+      spawnExecutionParticles(ex, ey);
+      triggerHitStop(0.08);
+      triggerShake(4, 6, 0.15);
+      player.souls += total;
+      toast("EXECUTADO");
     }
   
     function playerTakeDamage(amount, fromX){
@@ -924,6 +1001,8 @@ import {
           e.x = e._sx; e.y = e._sy;
           e.vx = 0; e.vy = 0;
           e.hp = e.hpMax;
+          e.poise = e.poiseMax;
+          e.staggerT = 0;
           e.state = "idle";
           e.t = 0; e.hitT = 0; e.invulT = 0;
         }
@@ -960,6 +1039,8 @@ import {
           e.x = e._sx; e.y = e._sy;
           e.vx = 0; e.vy = 0;
           e.hp = e.hpMax;
+          e.poise = e.poiseMax;
+          e.staggerT = 0;
           e.state = "idle";
           e.t = 0; e.hitT = 0; e.invulT = 0;
         }
@@ -991,6 +1072,7 @@ import {
       e.t = Math.max(0, e.t - dt);
       e.hitT = Math.max(0, e.hitT - dt);
       e.invulT = Math.max(0, e.invulT - dt);
+      e.staggerT = Math.max(0, e.staggerT - dt);
   
       const px = player.x + player.w/2;
       const ex = e.x + e.w/2;
@@ -1001,6 +1083,16 @@ import {
       // physics
       e.vy += G.gravity * dt;
       e.vx *= e.onGround ? G.friction : G.airFriction;
+
+      if (e.state === "stagger"){
+        e.vx *= e.onGround ? 0.75 : 0.92;
+        moveAndCollide(e, dt);
+        if (e.staggerT <= 0){
+          e.state = "idle";
+          e.poise = e.poiseMax;
+        }
+        return;
+      }
   
       // State machine
       if (e.state === "idle"){
@@ -1072,6 +1164,8 @@ import {
         e.x = e._sx; e.y = e._sy;
         e.vx = 0; e.vy = 0;
         e.hp = e.hpMax;
+        e.poise = e.poiseMax;
+        e.staggerT = 0;
         e.state = "idle";
         e.t = 0; e.hitT = 0; e.invulT = 0;
       }
@@ -1142,6 +1236,7 @@ import {
       player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
   
       // Combat actions
+      if (input.execute) tryExecute();
       if (input.attack || keys.has("j")) startAttack();
       if (input.roll || keys.has("k")) startRoll();
       if (input.drink) startDrink();
@@ -1168,7 +1263,7 @@ import {
               spawnHitParticles(impactX, impactY);
             }
             if (result.killed){
-              const gain = (e.kind === "knight") ? 180 : 90;
+              const gain = getEnemySoulValue(e);
               player.souls += gain;
               toast(`+${gain} souls`);
             }
@@ -1310,8 +1405,8 @@ import {
 
       // Hit particles
       if (hitParticles.length){
-        ctx.fillStyle = "rgba(255,210,120,.9)";
         for (const p of hitParticles){
+          ctx.fillStyle = p.color || "rgba(255,210,120,.9)";
           ctx.fillRect(p.x + ox, p.y + oy, p.size, p.size);
         }
       }
