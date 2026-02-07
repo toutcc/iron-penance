@@ -20,12 +20,119 @@ import {
     const YSHIFT = 320;
     const hpFill = document.getElementById("hpFill");
     const stFill = document.getElementById("stFill");
-    const hpText = document.getElementById("hpText");
-    const stText = document.getElementById("stText");
-    const soulsText = document.getElementById("soulsText");
-    const cpText = document.getElementById("cpText");
-    const fpsText = document.getElementById("fpsText");
-    const toastEl = document.getElementById("toast");
+  const hpText = document.getElementById("hpText");
+  const stText = document.getElementById("stText");
+  const soulsText = document.getElementById("soulsText");
+  const cpText = document.getElementById("cpText");
+  const fpsText = document.getElementById("fpsText");
+  const toastEl = document.getElementById("toast");
+
+  // ===== Login UI =====
+  const loginScreen = document.getElementById("loginScreen");
+  const loginActions = document.getElementById("loginActions");
+  const loginUser = document.getElementById("loginUser");
+  const loginStatus = document.getElementById("loginStatus");
+  const userName = document.getElementById("userName");
+  const userEmail = document.getElementById("userEmail");
+  const btnLogin = document.getElementById("btnLogin");
+  const btnLogout = document.getElementById("btnLogout");
+  const btnContinue = document.getElementById("btnContinue");
+
+  const provider = new GoogleAuthProvider();
+  let state = "login";
+  let rafId = null;
+
+  const setStatus = (message) => {
+    loginStatus.textContent = message;
+  };
+
+  const setLoginUi = (user) => {
+    if (user) {
+      const display = user.displayName || user.email || "Desconhecido";
+      userName.textContent = display;
+      userEmail.textContent = user.email || "Sem email disponível";
+      loginActions.classList.add("is-hidden");
+      loginUser.classList.add("is-visible");
+      setStatus("Autenticado. Pronto para continuar.");
+    } else {
+      userName.textContent = "—";
+      userEmail.textContent = "—";
+      loginActions.classList.remove("is-hidden");
+      loginUser.classList.remove("is-visible");
+      setStatus("Aguardando autenticação.");
+    }
+  };
+
+  const stopGame = () => {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    keys.clear();
+    consumeActions();
+    loginScreen.classList.remove("hidden");
+  };
+
+  const startGame = () => {
+    if (rafId !== null) return;
+    loginScreen.classList.add("hidden");
+    last = now();
+    rafId = requestAnimationFrame(frame);
+  };
+
+  const setState = (next) => {
+    if (state === next) return;
+    state = next;
+    if (state === "game") {
+      startGame();
+    } else {
+      stopGame();
+    }
+  };
+
+  btnLogin.addEventListener("click", async () => {
+    setStatus("Conectando...");
+    btnLogin.disabled = true;
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Falha no login:", error);
+      setStatus("Falha no login. Tente novamente.");
+    } finally {
+      btnLogin.disabled = false;
+    }
+  });
+
+  btnLogout.addEventListener("click", async () => {
+    setStatus("Saindo...");
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Falha ao sair:", error);
+      setStatus("Não foi possível sair agora.");
+    }
+  });
+
+  btnContinue.addEventListener("click", () => {
+    setState("game");
+  });
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      setLoginUi(user);
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          uid: user.uid,
+          name: user.displayName || user.email || "Jogador"
+        })
+      );
+    } else {
+      setLoginUi(null);
+      localStorage.removeItem("user");
+      setState("login");
+    }
+  });
     
   
     const toast = (msg, ms = 1300) => {
@@ -48,14 +155,22 @@ import {
     // ===== Input =====
     const keys = new Set();
     window.addEventListener("keydown", (e) => {
+      if (state !== "game") return;
       keys.add(e.key.toLowerCase());
       if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(e.key.toLowerCase())) e.preventDefault();
     });
-    window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+    window.addEventListener("keyup", (e) => {
+      if (state !== "game") return;
+      keys.delete(e.key.toLowerCase());
+    });
   
     // Mouse: left attack, right roll
-    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    canvas.addEventListener("contextmenu", (e) => {
+      if (state !== "game") return;
+      e.preventDefault();
+    });
     canvas.addEventListener("mousedown", (e) => {
+      if (state !== "game") return;
       if (e.button === 0) input.attack = true;
       if (e.button === 2) input.roll = true;
     });
@@ -707,6 +822,10 @@ import {
   
     // ===== Main Loop =====
     function frame(){
+      if (state !== "game") {
+        rafId = null;
+        return;
+      }
       const t = now();
       let dt = (t - last) / 1000;
       last = t;
@@ -724,12 +843,12 @@ import {
         fpsAcc = 0; fpsN = 0;
       }
   
-      requestAnimationFrame(frame);
+      rafId = requestAnimationFrame(frame);
     }
   
     // ===== Start =====
     toast("Bem-vindo. Cuidado com a stamina.");
     cpText.textContent = player.checkpoint.id;
-    requestAnimationFrame(frame);
+    stopGame();
   })();
   

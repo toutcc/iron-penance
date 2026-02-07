@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Soulslike 2D (3 arquivos)</title>
+  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -36,13 +37,31 @@
 
   <div class="toast" id="toast"></div>
 
+  <div class="login-screen" id="loginScreen" aria-live="polite">
+    <div class="login-fog"></div>
+    <div class="login-panel">
+      <p class="login-kicker">Prepare-se para penitência</p>
+      <h1>IRON PENANCE</h1>
+      <p class="login-subtitle">Conecte sua conta para entrar nas ruínas.</p>
+
+      <div class="login-actions" id="loginActions">
+        <button class="btn btn-primary" id="btnLogin">Entrar com Google</button>
+        <p class="login-status" id="loginStatus">Aguardando autenticação.</p>
+      </div>
+
+      <div class="login-user" id="loginUser" aria-live="polite">
+        <p class="login-user-name" id="userName">—</p>
+        <p class="login-user-email" id="userEmail">—</p>
+        <div class="login-user-actions">
+          <button class="btn btn-primary" id="btnContinue">Continuar</button>
+          <button class="btn btn-ghost" id="btnLogout">Sair</button>
+        </div>
+      </div>
+
+      <p class="login-hint">Ao entrar você aceita carregar sua jornada localmente.</p>
+    </div>
+  </div>
+
   <script type="module" src="game.js"></script>
-  <button id="btnLogin">Entrar com Google</button>
-<button id="btnLogout" style="display:none;">Sair</button>
-
-<div id="userBox" style="display:none;">
-  Logado como: <span id="userName"></span>
-</div>
-
 </body>
 </html>
