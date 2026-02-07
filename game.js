@@ -31,6 +31,7 @@ import {
   const soulsText = document.getElementById("soulsText");
   const cpText = document.getElementById("cpText");
   const fpsText = document.getElementById("fpsText");
+  const estusText = document.getElementById("estusText");
   const toastEl = document.getElementById("toast");
   const hud = document.getElementById("hud");
   const fpsPill = document.getElementById("fpsPill");
@@ -581,6 +582,7 @@ import {
       const key = e.key.toLowerCase();
       if (state === "game") {
         keys.add(key);
+        if (key === "q" && !e.repeat) input.drink = true;
         if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
         return;
       }
@@ -617,11 +619,13 @@ import {
     const input = {
       attack:false,
       roll:false,
+      drink:false,
     };
   
     function consumeActions(){
       input.attack = false;
       input.roll = false;
+      input.drink = false;
     }
   
     // ===== World =====
@@ -674,6 +678,8 @@ import {
         hp: 100, hpMax: 100,
         st: 100, stMax: 100,
         poise: 0,
+        estusMax: 3,
+        estus: 3,
   
         // state timers
         hurtT: 0,
@@ -682,6 +688,8 @@ import {
         attackCD: 0,
         rollT: 0,
         rollCD: 0,
+        isDrinking: false,
+        drinkTimer: 0,
   
         souls: 0,
         deathDrop: null, // {x,y,amount,active}
@@ -771,6 +779,7 @@ import {
     }
   
     function startAttack(){
+      if (player.isDrinking) return;
       if (player.attackCD > 0 || player.rollT > 0 || player.hurtT > 0) return;
       if (!staminaSpend(22)) { toast("Sem stamina!"); return; }
       player.attackT = 0.20;      // active window
@@ -779,6 +788,7 @@ import {
     }
   
     function startRoll(){
+      if (player.isDrinking) return;
       if (player.rollCD > 0 || player.attackT > 0 || player.hurtT > 0) return;
       if (!staminaSpend(28)) { toast("Sem stamina!"); return; }
       player.rollT = 0.32;
@@ -788,6 +798,17 @@ import {
       const dir = player.face;
       player.vx = 520 * dir;
       if (!player.onGround) player.vy = Math.min(player.vy, 120);
+    }
+
+    function startDrink(){
+      if (player.isDrinking || player.drinkTimer > 0) return;
+      if (player.attackT > 0 || player.rollT > 0 || player.hurtT > 0) return;
+      if (player.estus <= 0) { toast("Sem Estus."); return; }
+      player.estus -= 1;
+      player.isDrinking = true;
+      player.drinkTimer = 0.6;
+      player.hp = Math.min(player.hpMax, player.hp + 35);
+      toast("+35 HP (Estus)");
     }
   
     function getPlayerHitbox(){
@@ -853,6 +874,7 @@ import {
       player.checkpoint = {id: b.id, x: b.x - 16, y: 740}; // ground-ish
       player.hp = player.hpMax;
       player.st = player.stMax;
+      player.estus = player.estusMax;
       // respawn enemies
       for (const e of enemies){
         if (e.hp <= 0){
@@ -886,6 +908,7 @@ import {
       toast("VOCÊ MORREU.");
       player.hp = player.hpMax;
       player.st = player.stMax;
+      player.estus = player.estusMax;
       player.vx = 0; player.vy = 0;
       player.x = player.checkpoint.x;
       player.y = player.checkpoint.y;
@@ -1033,14 +1056,19 @@ import {
       player.attackCD = Math.max(0, player.attackCD - dt);
       player.rollT = Math.max(0, player.rollT - dt);
       player.rollCD = Math.max(0, player.rollCD - dt);
+      player.drinkTimer = Math.max(0, player.drinkTimer - dt);
+      if (player.isDrinking && player.drinkTimer <= 0){
+        player.isDrinking = false;
+      }
   
       // Stamina regen
       const regen = (player.rollT > 0 || player.attackCD > 0 || player.hurtT > 0) ? 22 : 38;
       player.st = clamp(player.st + regen * dt, 0, player.stMax);
   
       // Movement
-      const accel = player.onGround ? 1400 : 980;
-      const maxSpeed = player.rollT > 0 ? 620 : 310;
+      const moveScale = player.isDrinking ? 0.2 : 1;
+      const accel = (player.onGround ? 1400 : 980) * moveScale;
+      const maxSpeed = (player.rollT > 0 ? 620 : 310) * moveScale;
   
       if (player.rollT <= 0 && player.hurtT <= 0){
         if (left) { player.vx -= accel * dt; player.face = -1; }
@@ -1061,6 +1089,7 @@ import {
       // Combat actions
       if (input.attack || keys.has("j")) startAttack();
       if (input.roll || keys.has("k")) startRoll();
+      if (input.drink) startDrink();
   
       // Bonfire rest (press E near)
       if (rest) restAtBonfire();
@@ -1257,6 +1286,7 @@ import {
       hpText.textContent = `${Math.floor(player.hp)}/${player.hpMax}`;
       stText.textContent = `${Math.floor(player.st)}/${player.stMax}`;
       soulsText.textContent = `${player.souls}`;
+      estusText.textContent = `${player.estus}/${player.estusMax}`;
     }
   
     // ===== Main Loop =====
