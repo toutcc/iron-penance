@@ -73,6 +73,46 @@
     line-height: 1.35;
   }
 
+  .boss-bar{
+    max-width: 920px;
+    margin: 6px auto 0;
+    padding: 10px 14px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(180,190,220,.28);
+    background: linear-gradient(180deg, rgba(30,34,50,.85), rgba(12,14,22,.78));
+    box-shadow: var(--shadow);
+    text-align: center;
+  }
+
+  .boss-bar.hidden{
+    display: none;
+  }
+
+  .boss-name{
+    font-family: "Times New Roman", "Cinzel", "Garamond", serif;
+    text-transform: uppercase;
+    letter-spacing: .22em;
+    font-size: 12px;
+    color: rgba(230,234,248,.85);
+    margin-bottom: 8px;
+  }
+
+  .boss-track{
+    height: 16px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.18);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .boss-fill{
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, rgba(235,90,120,.95), rgba(255,180,140,.9));
+    transition: width .12s ease;
+  }
+
   canvas{
     display:block;
     margin: 10px auto 18px;
