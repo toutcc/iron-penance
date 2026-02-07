@@ -1,4 +1,4 @@
-import { auth } from "./firebaseConfig.js";
+import { auth, db } from "./firebaseConfig.js";
 
 import {
   GoogleAuthProvider,
@@ -12,6 +12,12 @@ import {
   setPersistence,
   browserLocalPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 
 (async () => {
@@ -227,7 +233,77 @@ import {
     localStorage.setItem("ironpenance_fps_limit", String(fpsLimit));
   };
 
-  const hasSave = () => Boolean(localStorage.getItem("ironpenance_save") || localStorage.getItem("save"));
+  const LOCAL_SAVE_KEY = "ironpenance_save_local";
+  const hasSave = () => Boolean(
+    localStorage.getItem(LOCAL_SAVE_KEY)
+    || localStorage.getItem("ironpenance_save")
+    || localStorage.getItem("save")
+  );
+
+  const buildSaveData = () => ({
+    player: {
+      checkpoint: player.checkpoint ? { ...player.checkpoint } : null,
+      souls: player.souls,
+      hp: player.hp,
+      x: player.x,
+      y: player.y
+    }
+  });
+
+  const saveLocal = (data) => {
+    const payload = JSON.stringify(data);
+    localStorage.setItem(LOCAL_SAVE_KEY, payload);
+    localStorage.setItem("ironpenance_save", payload);
+  };
+
+  const loadLocalSave = () => {
+    const raw = localStorage.getItem(LOCAL_SAVE_KEY)
+      || localStorage.getItem("ironpenance_save")
+      || localStorage.getItem("save");
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch (error) {
+      console.warn("Falha ao carregar save local:", error);
+      return null;
+    }
+  };
+
+  const applySaveData = (data) => {
+    if (!data?.player) return false;
+    const saved = data.player;
+    if (Number.isFinite(saved.souls)) player.souls = saved.souls;
+    if (Number.isFinite(saved.hp)) player.hp = saved.hp;
+    if (Number.isFinite(saved.x)) player.x = saved.x;
+    if (Number.isFinite(saved.y)) player.y = saved.y;
+    if (saved.checkpoint) {
+      player.checkpoint = { ...player.checkpoint, ...saved.checkpoint };
+      if (player.checkpoint?.id) {
+        cpText.textContent = player.checkpoint.id;
+      }
+      if (player.checkpoint?.roomId) {
+        const spawnX = Number.isFinite(player.checkpoint.x) ? player.checkpoint.x : player.x;
+        const spawnY = Number.isFinite(player.checkpoint.y) ? player.checkpoint.y : player.y;
+        loadRoom(player.checkpoint.roomId, { spawn: { x: spawnX, y: spawnY } });
+      }
+    }
+    refreshEquipmentStats();
+    return true;
+  };
+
+  const saveCloud = async (uid, data) => {
+    if (!uid) return false;
+    const payload = { ...data, updatedAt: serverTimestamp() };
+    await setDoc(doc(db, "saves", uid), payload, { merge: true });
+    return true;
+  };
+
+  const loadCloud = async (uid) => {
+    if (!uid) return null;
+    const snapshot = await getDoc(doc(db, "saves", uid));
+    if (!snapshot.exists()) return null;
+    return snapshot.data();
+  };
 
   const updateContinueAvailability = () => {
     const continueItem = menuItems.find((item) => item.dataset.action === "continue");
@@ -264,23 +340,13 @@ import {
   const playMenuConfirm = () => {};
 
   const loadGame = () => {
-    const raw = localStorage.getItem("ironpenance_save") || localStorage.getItem("save");
-    if (!raw) {
+    const data = loadLocalSave();
+    if (!data) {
       toast("Nenhum save encontrado.");
       return;
     }
     try {
-      const data = JSON.parse(raw);
-      if (data?.player) {
-        Object.assign(player, data.player);
-        if (data.player.checkpoint?.id) {
-          cpText.textContent = data.player.checkpoint.id;
-        }
-        if (data.player.checkpoint?.roomId) {
-          loadRoom(data.player.checkpoint.roomId, { spawn: { x: data.player.checkpoint.x, y: data.player.checkpoint.y } });
-        }
-      }
-      refreshEquipmentStats();
+      if (!applySaveData(data)) throw new Error("Save inválido.");
       toast("Save carregado.");
     } catch (error) {
       console.warn("Falha ao carregar save:", error);
@@ -586,7 +652,7 @@ import {
     saveSettings();
   });
 
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, async (user) => {
     if (user) {
       setLoginUi(user);
       menuUser.textContent = `Conectado: ${user.displayName || user.email || "Jogador"}`;
@@ -597,6 +663,19 @@ import {
           name: user.displayName || user.email || "Jogador"
         })
       );
+      try {
+        const cloudData = await loadCloud(user.uid);
+        if (cloudData) {
+          applySaveData(cloudData);
+        }
+      } catch (error) {
+        console.warn("Falha ao carregar save na nuvem:", error);
+        const localData = loadLocalSave();
+        if (localData) {
+          applySaveData(localData);
+          toast("Cloud indisponível. Usando save local.");
+        }
+      }
       setState("menu");
     } else {
       setLoginUi(null);
@@ -1838,7 +1917,7 @@ import {
       return {b: best, d: bestD};
     }
   
-    function restAtBonfire(){
+    async function restAtBonfire(){
       const {b, d} = nearestBonfire();
       if (!b || d > 70) { toast("Chegue mais perto da fogueira."); return; }
       if (b.locked && !bossDefeated){
@@ -1855,8 +1934,19 @@ import {
       player.st = player.stMax;
       player.estus = player.estusMax;
       resetAllRoomsEnemies();
-  
+
       toast(`Descansou em ${b.id}.`);
+      const saveData = buildSaveData();
+      saveLocal(saveData);
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        try {
+          await saveCloud(uid, saveData);
+        } catch (error) {
+          console.warn("Falha ao salvar na nuvem:", error);
+          toast("Falha ao salvar na nuvem. Save local atualizado.");
+        }
+      }
     }
   
     function dieAndRespawn(){
