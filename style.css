@@ -763,6 +763,13 @@
     font-size: 14px;
     letter-spacing: .08em;
     text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  }
+
+  .inventory-slot:hover{
+    border-color: rgba(200,210,255,.4);
+    background: rgba(120,140,200,.12);
   }
 
   .inventory-slot.is-selected{

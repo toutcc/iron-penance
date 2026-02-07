@@ -169,6 +169,14 @@ import {
     inventoryScreen.setAttribute("aria-hidden", "true");
   };
 
+  inventorySlots.forEach((slotEl, index) => {
+    slotEl.addEventListener("click", () => {
+      if (state !== "inventory") return;
+      inventoryIndex = index;
+      updateInventoryUI();
+    });
+  });
+
   const setState = (next) => {
     if (state === next) return;
     state = next;
@@ -605,9 +613,50 @@ import {
   loadSettings();
 
   const bossDefeatedKey = "bossDefeated";
+  const bossRewardClaimedKey = "ironpenance_boss_reward_claimed";
+  const pickupsKey = "ironpenance_pickups_collected";
+  const miniBossKey = "ironpenance_miniboss_defeated";
   const getBossDefeated = () => localStorage.getItem(bossDefeatedKey) === "true";
   let bossDefeated = getBossDefeated();
-  let bossRewardClaimed = bossDefeated;
+  const getBossRewardClaimed = () => localStorage.getItem(bossRewardClaimedKey) === "true";
+  let bossRewardClaimed = getBossRewardClaimed();
+
+  const loadCollectedPickups = () => {
+    const raw = localStorage.getItem(pickupsKey);
+    if (!raw) return new Set();
+    try {
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) return new Set();
+      return new Set(data);
+    } catch (error) {
+      console.warn("Falha ao carregar pickups:", error);
+      return new Set();
+    }
+  };
+
+  const saveCollectedPickups = (set) => {
+    localStorage.setItem(pickupsKey, JSON.stringify([...set]));
+  };
+
+  const loadMiniBosses = () => {
+    const raw = localStorage.getItem(miniBossKey);
+    if (!raw) return new Set();
+    try {
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) return new Set();
+      return new Set(data);
+    } catch (error) {
+      console.warn("Falha ao carregar minibosses:", error);
+      return new Set();
+    }
+  };
+
+  const saveMiniBosses = (set) => {
+    localStorage.setItem(miniBossKey, JSON.stringify([...set]));
+  };
+
+  const collectedPickups = loadCollectedPickups();
+  const defeatedMiniBosses = loadMiniBosses();
   
     // ===== Utils =====
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -687,6 +736,11 @@ import {
         id: "relic_ember",
         name: "Relíquia da Brasa",
         description: "Aumenta levemente a regeneração de stamina."
+      },
+      relic_iron: {
+        id: "relic_iron",
+        name: "Relíquia de Ferro",
+        description: "Um núcleo pesado que fortalece a determinação."
       }
     };
 
@@ -695,7 +749,24 @@ import {
         id: "estus",
         name: "Frasco de Estus",
         description: "Restaura parte da vida ao ser consumido."
+      },
+      bitter_tonic: {
+        id: "bitter_tonic",
+        name: "Tônico Amargo",
+        description: "Um tônico improvisado. Serve como consumível de viagem."
+      },
+      ash_draught: {
+        id: "ash_draught",
+        name: "Gole de Cinzas",
+        description: "Alivia a exaustão por um breve momento."
       }
+    };
+
+    const INVENTORY_LIMITS = {
+      weapon: 6,
+      armor: 6,
+      relic: 4,
+      consumable: 6
     };
 
     const EQUIP_LOAD = {
@@ -726,6 +797,7 @@ import {
       }
       if (state === "game") {
         keys.add(key);
+        if (key === "e" && !e.repeat) input.interact = true;
         if (key === "q" && !e.repeat) input.drink = true;
         if (key === "i" && !e.repeat) input.execute = true;
         if (key === "l" && !e.repeat) input.parry = true;
@@ -786,14 +858,16 @@ import {
       drink:false,
       execute:false,
       parry:false,
+      interact:false,
     };
-  
+
     function consumeActions(){
       input.attack = false;
       input.roll = false;
       input.drink = false;
       input.execute = false;
       input.parry = false;
+      input.interact = false;
     }
   
     // ===== World =====
@@ -813,7 +887,7 @@ import {
   
     // ===== Entities =====
     function makePlayer(){
-      const baseEstusMax = bossDefeated ? 4 : 3;
+      const baseEstusMax = bossRewardClaimed ? 4 : 3;
       return {
         x: 120, y: 740 - YSHIFT,
         w: 26, h: 44,
@@ -903,8 +977,9 @@ import {
     }
 
     const miniBossKnight = makeEnemy(1480, 740, "knight");
+    miniBossKnight.id = "mini_boss_knight";
     miniBossKnight.isMiniBoss = true;
-    miniBossKnight.dropItem = { slot: "weapon", itemId: "heavy_sword" };
+    miniBossKnight.dropItem = { type: "weapon", itemId: "heavy_sword" };
 
     const rooms = {
       ruins_start: {
@@ -936,7 +1011,7 @@ import {
           makeEnemy(1480, 740, "knight"),
         ],
         pickups: [
-          { id: "pickup_long_sword", slot: "weapon", itemId: "long_sword", x: 620, y: 700 - YSHIFT },
+          { id: "pickup_long_sword", type: "weapon", itemId: "long_sword", x: 620, y: 700 - YSHIFT },
         ],
         neighbors: { right: "broken_gallery" }
       },
@@ -998,7 +1073,7 @@ import {
           makeEnemy(1500, 500 - YSHIFT, "knight"),
         ],
         pickups: [
-          { id: "pickup_medium_armor", slot: "armor", itemId: "medium_armor", x: 880, y: 500 - YSHIFT },
+          { id: "pickup_medium_armor", type: "armor", itemId: "medium_armor", x: 880, y: 500 - YSHIFT },
         ],
         neighbors: { left: "broken_gallery", right: "antechamber" },
         voidKill: true,
@@ -1025,7 +1100,7 @@ import {
         ],
         enemies: [],
         pickups: [
-          { id: "pickup_heavy_armor", slot: "armor", itemId: "heavy_armor", x: 980, y: 700 - YSHIFT },
+          { id: "pickup_heavy_armor", type: "armor", itemId: "heavy_armor", x: 980, y: 700 - YSHIFT },
         ],
         neighbors: { left: "silent_abyss", right: "boss_arena" },
         message: "Uma presença opressora aguarda…"
@@ -1141,20 +1216,26 @@ import {
       player.rollProfile = profile;
     };
 
-    const grantItem = (slot, itemId, source = "pickup") => {
+    const grantItem = (slot, itemId) => {
       if (!inventoryState.owned[slot]) inventoryState.owned[slot] = [];
-      if (!inventoryState.owned[slot].includes(itemId)) {
-        inventoryState.owned[slot].push(itemId);
-        toast(`Obteve ${getItemBySlot(slot, itemId)?.name || "item"}.`);
-      } else {
+      if (inventoryState.owned[slot].includes(itemId)) {
         toast("Item já obtido.");
+        return false;
       }
+      const limit = INVENTORY_LIMITS[slot];
+      if (Number.isFinite(limit) && inventoryState.owned[slot].length >= limit) {
+        toast("Inventário cheio.");
+        return false;
+      }
+      inventoryState.owned[slot].push(itemId);
+      toast(`Você obteve: ${getItemBySlot(slot, itemId)?.name || "item"}.`);
       if (!inventoryState.equipment[slot]) {
         inventoryState.equipment[slot] = itemId;
       }
       saveInventory();
       refreshEquipmentStats();
       if (state === "inventory") updateInventoryUI();
+      return true;
     };
 
     const cycleEquipment = (slot) => {
@@ -1241,7 +1322,6 @@ import {
     let currentRoom = rooms[currentRoomId];
     let boss = null;
     let bossArenaLocked = false;
-    let bossDrop = null;
     const roomFade = { active: false, phase: "out", t: 0, duration: 0.45, nextRoom: null, entry: null };
     const bossDefeatFlash = { t: 0, duration: 0.8 };
 
@@ -1250,11 +1330,16 @@ import {
       for (const e of room.enemies){
         e._sx = e.x;
         e._sy = e.y;
+        if (e.isMiniBoss && e.id && defeatedMiniBosses.has(e.id)){
+          e._defeated = true;
+          e.hp = 0;
+          e.state = "dead";
+        }
       }
       if (room.pickups){
         room.pickups.forEach((pickup) => {
           if (pickup.active == null){
-            pickup.active = !isItemOwned(pickup.slot, pickup.itemId);
+            pickup.active = !collectedPickups.has(pickup.id);
           }
         });
       }
@@ -1264,6 +1349,7 @@ import {
 
     const resetRoomEnemies = (room) => {
       for (const e of room.enemies){
+        if (e._defeated) continue;
         if (e._sx == null) continue;
         e.x = e._sx; e.y = e._sy;
         e.vx = 0; e.vy = 0;
@@ -1284,7 +1370,6 @@ import {
       if (!arena?.boss) return;
       arena.boss = makeBoss(1200, 670 - YSHIFT);
       boss = arena.boss;
-      bossDrop = null;
     };
 
     const updateBossBar = () => {
@@ -1314,6 +1399,19 @@ import {
           boss.state = "dead";
           bossArenaLocked = false;
           room.bonfires.forEach((b) => { b.locked = false; });
+          if (!bossRewardClaimed){
+            const existingReward = room.drops?.some((drop) => drop.isBossReward);
+            if (!existingReward){
+              createRoomDrop(room, {
+                id: "boss_reward",
+                x: 980,
+                y: 660 - YSHIFT,
+                type: "relic",
+                itemId: "relic_iron",
+                isBossReward: true
+              });
+            }
+          }
         } else {
           bossArenaLocked = true;
         }
@@ -1550,23 +1648,45 @@ import {
     }
 
     // ===== Items & Drops =====
-    const createRoomDrop = (room, drop) => {
+    function createRoomDrop(room, drop){
       if (!room) return;
       if (!room.drops) room.drops = [];
       room.drops.push({ ...drop, active: true });
-    };
+    }
 
     const handleEnemyKilled = (enemy) => {
-      if (!enemy?.dropItem || !currentRoom) return;
-      const { slot, itemId } = enemy.dropItem;
-      if (isItemOwned(slot, itemId)) return;
-      createRoomDrop(currentRoom, {
-        x: enemy.x + enemy.w / 2 - 10,
-        y: enemy.y + enemy.h - 18,
-        slot,
-        itemId
-      });
-      toast("Um item foi deixado para trás.");
+      if (!currentRoom || !enemy) return;
+      if (enemy.isMiniBoss && enemy.id){
+        defeatedMiniBosses.add(enemy.id);
+        saveMiniBosses(defeatedMiniBosses);
+        enemy._defeated = true;
+      }
+      if (enemy.dropItem){
+        const { type, itemId } = enemy.dropItem;
+        if (!isItemOwned(type, itemId)) {
+          createRoomDrop(currentRoom, {
+            x: enemy.x + enemy.w / 2 - 10,
+            y: enemy.y + enemy.h - 18,
+            type,
+            itemId
+          });
+          toast("Um item foi deixado para trás.");
+        }
+        return;
+      }
+      const commonDropChance = 0.03;
+      if (Math.random() <= commonDropChance){
+        const candidates = ["bitter_tonic", "ash_draught"].filter((id) => !isItemOwned("consumable", id));
+        if (!candidates.length) return;
+        const itemId = candidates[Math.floor(Math.random() * candidates.length)];
+        createRoomDrop(currentRoom, {
+          x: enemy.x + enemy.w / 2 - 10,
+          y: enemy.y + enemy.h - 18,
+          type: "consumable",
+          itemId
+        });
+        toast("Algo caiu ao chão.");
+      }
     };
 
     function tryExecute(){
@@ -1728,20 +1848,34 @@ import {
 
     function tryPickupItems(){
       const p = {x: player.x, y: player.y, w: player.w, h: player.h};
-      const checkList = (list, removeOnPickup = false) => {
+      const checkList = (list, removeOnPickup = false, recordPickup = false) => {
         if (!list) return;
         for (let i = list.length - 1; i >= 0; i--){
           const drop = list[i];
           if (!drop.active) continue;
           const itemBox = { x: drop.x, y: drop.y, w: 22, h: 22 };
           if (rectsOverlap(p, itemBox)){
+            const collected = grantItem(drop.type, drop.itemId);
+            if (!collected) continue;
             drop.active = false;
-            grantItem(drop.slot, drop.itemId);
+            if (drop.isBossReward){
+              if (!bossRewardClaimed){
+                player.estusMax += 1;
+                player.estus = player.estusMax;
+                bossRewardClaimed = true;
+                localStorage.setItem(bossRewardClaimedKey, "true");
+                toast("Coração de Ferro obtido. Estus máximo +1.");
+              }
+            }
+            if (recordPickup && drop.id) {
+              collectedPickups.add(drop.id);
+              saveCollectedPickups(collectedPickups);
+            }
             if (removeOnPickup) list.splice(i, 1);
           }
         }
       };
-      checkList(currentRoom?.pickups);
+      checkList(currentRoom?.pickups, false, true);
       checkList(currentRoom?.drops, true);
     }
   
@@ -1866,11 +2000,16 @@ import {
         bossDefeatFlash.t = bossDefeatFlash.duration;
         bossArenaLocked = false;
         currentRoom?.bonfires?.forEach((b) => { b.locked = false; });
-        bossDrop = {
-          x: boss.x + boss.w / 2 - 12,
-          y: boss.y + boss.h - 18,
-          active: true
-        };
+        if (!bossRewardClaimed){
+          createRoomDrop(currentRoom, {
+            id: "boss_reward",
+            x: boss.x + boss.w / 2 - 12,
+            y: boss.y + boss.h - 18,
+            type: "relic",
+            itemId: "relic_iron",
+            isBossReward: true
+          });
+        }
         updateBossBar();
         toast("O Penitente de Ferro foi derrotado.");
         return { hit: true, killed: true };
@@ -2021,6 +2160,14 @@ import {
         inventoryState.equipment = fresh.equipment;
         inventoryState.owned = fresh.owned;
         saveInventory();
+        collectedPickups.clear();
+        saveCollectedPickups(collectedPickups);
+        defeatedMiniBosses.clear();
+        saveMiniBosses(defeatedMiniBosses);
+        bossDefeated = false;
+        bossRewardClaimed = false;
+        localStorage.removeItem(bossDefeatedKey);
+        localStorage.removeItem(bossRewardClaimedKey);
       }
       const p = makePlayer();
       Object.assign(player, p);
@@ -2030,7 +2177,7 @@ import {
         resetRoomEnemies(room);
         if (room.pickups){
           room.pickups.forEach((pickup) => {
-            pickup.active = !isItemOwned(pickup.slot, pickup.itemId);
+            pickup.active = !collectedPickups.has(pickup.id);
           });
         }
         if (room.drops) room.drops.length = 0;
@@ -2065,7 +2212,6 @@ import {
       const left = keys.has("a") || keys.has("arrowleft");
       const right = keys.has("d") || keys.has("arrowright");
       const jump = keys.has("w") || keys.has("arrowup") || keys.has(" ");
-      const rest = keys.has("e");
       const restart = keys.has("r");
   
       if (restart) resetAll();
@@ -2132,8 +2278,10 @@ import {
       if (input.parry) startParry();
       if (input.drink) startDrink();
   
-      // Bonfire rest (press E near)
-      if (rest) restAtBonfire();
+      if (input.interact){
+        tryPickupItems();
+        restAtBonfire();
+      }
   
       // Move & collide
       moveAndCollide(player, dt);
@@ -2181,23 +2329,6 @@ import {
   
       // Death drop pickup
       tryPickupDeathDrop();
-      tryPickupItems();
-
-      if (bossDrop && bossDrop.active && currentRoomId === "boss_arena"){
-        const p = {x: player.x, y: player.y, w: player.w, h: player.h};
-        const orb = {x: bossDrop.x, y: bossDrop.y, w: 24, h: 24};
-        if (rectsOverlap(p, orb)){
-          bossDrop.active = false;
-          if (!bossRewardClaimed){
-            player.estusMax += 1;
-            player.estus = player.estusMax;
-            bossRewardClaimed = true;
-            toast("Coração de Ferro obtido. Estus máximo +1.");
-          } else {
-            toast("Coração de Ferro obtido.");
-          }
-        }
-      }
   
       // Update checkpoint label
       cpText.textContent = player.checkpoint.id;
@@ -2329,7 +2460,7 @@ import {
           relic: "rgba(210,170,255,.9)",
           consumable: "rgba(120,220,160,.9)"
         };
-        const glow = colors[drop.slot] || "rgba(200,200,200,.9)";
+        const glow = colors[drop.type] || "rgba(200,200,200,.9)";
         ctx.fillStyle = glow;
         ctx.beginPath();
         ctx.arc(drop.x + 11 + ox, drop.y + 11 + oy + bob, 7, 0, Math.PI * 2);
@@ -2411,20 +2542,6 @@ import {
         ctx.fillStyle = "#0a0c12";
         const eyeX = boss.face === 1 ? (boss.x + boss.w - 16) : (boss.x + 8);
         ctx.fillRect(eyeX + ox, boss.y + 26 + oy, 6, 6);
-      }
-
-      if (bossDrop && bossDrop.active && currentRoomId === "boss_arena"){
-        const t = now()/1000;
-        const bob = Math.sin(t*3) * 3;
-        ctx.fillStyle = "rgba(240,220,160,.9)";
-        ctx.beginPath();
-        ctx.arc(bossDrop.x + 12 + ox, bossDrop.y + 12 + oy + bob, 8, 0, Math.PI*2);
-        ctx.fill();
-        ctx.strokeStyle = "rgba(240,220,160,.4)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(bossDrop.x + 12 + ox, bossDrop.y + 12 + oy + bob, 16, 0, Math.PI*2);
-        ctx.stroke();
       }
 
       // Hit particles
