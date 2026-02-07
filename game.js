@@ -911,7 +911,9 @@ import {
       jumpCut: 0.5,
       jumpHoldGravityFactor: 0.45,
       dashDuration: 0.18,
-      dashSpeed: 820
+      dashSpeed: 820,
+      plungeSpeed: 760,
+      plungeBounceSpeed: 520
     };
   
     const level = {
@@ -946,6 +948,8 @@ import {
         invulT: 0,
         attackT: 0,
         attackCD: 0,
+        attackType: "normal",
+        attackHit: false,
         rollT: 0,
         rollCD: 0,
         parryT: 0,
@@ -1596,10 +1600,17 @@ import {
       if (player.isDrinking) return;
       if (player.attackCD > 0 || player.rollT > 0 || player.hurtT > 0 || player.parryT > 0) return;
       if (!staminaSpend(weapon.staminaCost)) { toast("Sem stamina!"); return; }
+      const downHeld = keys.has("s") || keys.has("arrowdown");
+      const plungeAttack = downHeld && !player.onGround;
       const baseActive = 0.22;
       const baseCooldown = 0.46;
       player.attackT = baseActive / weapon.attackSpeed;      // active window
       player.attackCD = baseCooldown / weapon.attackSpeed;   // total cooldown
+      player.attackType = plungeAttack ? "plunge" : "normal";
+      player.attackHit = false;
+      if (plungeAttack){
+        player.vy = Math.max(player.vy, PLAYER_MOVE.plungeSpeed);
+      }
       player.invulT = Math.max(player.invulT, 0); // no change
     }
   
@@ -1654,6 +1665,15 @@ import {
       const x = player.face === 1 ? (player.x + player.w + range - w) : (player.x - range);
       const y = player.y + 12;
       return {x, y, w, h};
+    }
+
+    function getPlungeHitbox(){
+      const weapon = getEquippedWeapon();
+      const w = 22 + Math.round((weapon.reach - 30) * 0.2);
+      const h = 34;
+      const x = player.x + player.w / 2 - w / 2;
+      const y = player.y + player.h - 6;
+      return { x, y, w, h };
     }
 
     function triggerStagger(ent){
@@ -2411,7 +2431,8 @@ import {
   
       // Attack hit
       if (player.attackT > 0){
-        const ah = getAttackHitbox();
+        const isPlunge = player.attackType === "plunge";
+        const ah = isPlunge ? getPlungeHitbox() : getAttackHitbox();
         const weapon = getEquippedWeapon();
         for (const e of enemies){
           if (e.hp <= 0) continue;
@@ -2424,6 +2445,12 @@ import {
               const impactX = ah.x + ah.w / 2;
               const impactY = ah.y + ah.h / 2;
               spawnHitParticles(impactX, impactY);
+              if (isPlunge && !player.attackHit){
+                player.attackHit = true;
+                player.attackT = 0;
+                player.onGround = false;
+                player.vy = -PLAYER_MOVE.plungeBounceSpeed;
+              }
             }
             if (result.killed){
               const gain = getEnemySoulValue(e);
@@ -2441,6 +2468,25 @@ import {
             const impactX = ah.x + ah.w / 2;
             const impactY = ah.y + ah.h / 2;
             spawnHitParticles(impactX, impactY, { color: "rgba(255,200,160,.9)" });
+            if (isPlunge && !player.attackHit){
+              player.attackHit = true;
+              player.attackT = 0;
+              player.onGround = false;
+              player.vy = -PLAYER_MOVE.plungeBounceSpeed;
+            }
+          }
+        }
+        if (isPlunge && !player.attackHit && currentRoom?.spikes){
+          for (const spike of currentRoom.spikes){
+            if (rectsOverlap(ah, spike)){
+              player.attackHit = true;
+              player.attackT = 0;
+              player.onGround = false;
+              player.vy = -PLAYER_MOVE.plungeBounceSpeed;
+              triggerHitStop(0.04);
+              triggerShake(2, 3, 0.1);
+              break;
+            }
           }
         }
       }
@@ -2698,7 +2744,7 @@ import {
   
       // Attack arc
       if (player.attackT > 0){
-        const ah = getAttackHitbox();
+        const ah = player.attackType === "plunge" ? getPlungeHitbox() : getAttackHitbox();
         ctx.strokeStyle = "rgba(255,255,255,.35)";
         ctx.lineWidth = 2;
         ctx.strokeRect(ah.x + ox, ah.y + oy, ah.w, ah.h);
