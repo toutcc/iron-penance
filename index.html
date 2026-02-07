@@ -30,7 +30,7 @@
 
     <div class="help">
       <b>Controles</b>:
-      A/D ou ←/→ mover • W/↑/Espaço pular • J atacar • K rolar • Q beber Estus • E descansar (bonfire) • R reiniciar
+      A/D ou ←/→ mover • W/↑/Espaço pular • J atacar • K rolar • L aparar • Q beber Estus • TAB inventário • E descansar (bonfire) • R reiniciar
     </div>
   </div>
 
@@ -38,6 +38,40 @@
     <div class="boss-name">O PENITENTE DE FERRO</div>
     <div class="boss-track">
       <div id="bossHpFill" class="boss-fill"></div>
+    </div>
+  </div>
+
+  <div class="inventory-screen hidden" id="inventoryScreen" aria-hidden="true">
+    <div class="inventory-panel" role="dialog" aria-labelledby="inventoryTitle">
+      <header class="inventory-header">
+        <div>
+          <p class="inventory-kicker">Inventário</p>
+          <h2 id="inventoryTitle">EQUIPAMENTO</h2>
+        </div>
+        <div class="inventory-weight" id="inventoryWeight">Peso 0/0</div>
+      </header>
+      <div class="inventory-body">
+        <ul class="inventory-slots" id="inventorySlots">
+          <li class="inventory-slot" data-slot="weapon">
+            <span class="slot-label">Arma</span>
+            <span class="slot-value" id="slotWeapon">—</span>
+          </li>
+          <li class="inventory-slot" data-slot="armor">
+            <span class="slot-label">Armadura</span>
+            <span class="slot-value" id="slotArmor">—</span>
+          </li>
+          <li class="inventory-slot" data-slot="relic">
+            <span class="slot-label">Relíquia</span>
+            <span class="slot-value" id="slotRelic">—</span>
+          </li>
+          <li class="inventory-slot" data-slot="consumable">
+            <span class="slot-label">Consumível</span>
+            <span class="slot-value" id="slotConsumable">—</span>
+          </li>
+        </ul>
+        <div class="inventory-details" id="inventoryDetails"></div>
+      </div>
+      <div class="inventory-hint">↑ ↓ navegar • Enter equipar • Esc sair</div>
     </div>
   </div>
 
