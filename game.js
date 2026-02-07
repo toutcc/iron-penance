@@ -801,6 +801,7 @@ import {
         if (key === "q" && !e.repeat) input.drink = true;
         if (key === "i" && !e.repeat) input.execute = true;
         if (key === "l" && !e.repeat) input.parry = true;
+        if (key === "shift" && !e.repeat) input.dash = true;
         if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
         return;
       }
@@ -859,6 +860,7 @@ import {
       execute:false,
       parry:false,
       interact:false,
+      dash:false,
     };
 
     function consumeActions(){
@@ -868,6 +870,7 @@ import {
       input.execute = false;
       input.parry = false;
       input.interact = false;
+      input.dash = false;
     }
   
     // ===== World =====
@@ -876,6 +879,22 @@ import {
       friction: 0.86,
       airFriction: 0.985,
       dtMax: 1/30
+    };
+
+    const PLAYER_MOVE = {
+      accelGround: 2000,
+      accelAir: 1400,
+      maxSpeed: 310,
+      frictionGround: 0.78,
+      frictionAir: 0.92,
+      jumpSpeed: 620,
+      coyoteTime: 0.10,
+      jumpBufferTime: 0.10,
+      jumpHoldTime: 0.18,
+      jumpCut: 0.5,
+      jumpHoldGravityFactor: 0.45,
+      dashDuration: 0.18,
+      dashSpeed: 820
     };
   
     const level = {
@@ -916,6 +935,13 @@ import {
         parryCD: 0,
         isDrinking: false,
         drinkTimer: 0,
+        dashT: 0,
+        dashDir: 1,
+        dashAvailable: true,
+        coyoteTimer: 0,
+        jumpBufferTimer: 0,
+        jumpHoldTimer: 0,
+        jumpHeldPrev: false,
   
         souls: 0,
         deathDrop: null, // {x,y,amount,active}
@@ -2211,7 +2237,7 @@ import {
       // Actions
       const left = keys.has("a") || keys.has("arrowleft");
       const right = keys.has("d") || keys.has("arrowright");
-      const jump = keys.has("w") || keys.has("arrowup") || keys.has(" ");
+      const jumpHeld = keys.has("w") || keys.has("arrowup") || keys.has(" ");
       const restart = keys.has("r");
   
       if (restart) resetAll();
@@ -2225,6 +2251,7 @@ import {
       player.rollCD = Math.max(0, player.rollCD - dt);
       player.parryT = Math.max(0, player.parryT - dt);
       player.parryCD = Math.max(0, player.parryCD - dt);
+      player.dashT = Math.max(0, player.dashT - dt);
       player.drinkTimer = Math.max(0, player.drinkTimer - dt);
       deathFade.t = Math.max(0, deathFade.t - dt);
       bossDefeatFlash.t = Math.max(0, bossDefeatFlash.t - dt);
@@ -2252,24 +2279,73 @@ import {
       // Movement
       const profile = getRollProfile();
       const moveScale = (player.isDrinking ? 0.2 : 1) * profile.moveSpeed;
-      const accel = (player.onGround ? 1400 : 980) * moveScale;
-      const maxSpeed = player.rollT > 0 ? profile.rollSpeed : 310 * moveScale;
-  
-      if (player.rollT <= 0 && player.hurtT <= 0){
+      const accel = (player.onGround ? PLAYER_MOVE.accelGround : PLAYER_MOVE.accelAir) * moveScale;
+      const maxSpeed = player.rollT > 0 ? profile.rollSpeed : PLAYER_MOVE.maxSpeed * moveScale;
+      const jumpPressed = jumpHeld && !player.jumpHeldPrev;
+      const jumpReleased = !jumpHeld && player.jumpHeldPrev;
+      const canJump = player.rollT <= 0 && player.hurtT <= 0 && player.dashT <= 0;
+
+      if (player.onGround){
+        player.coyoteTimer = PLAYER_MOVE.coyoteTime;
+        player.dashAvailable = true;
+      } else {
+        player.coyoteTimer = Math.max(0, player.coyoteTimer - dt);
+      }
+
+      if (jumpPressed) player.jumpBufferTimer = PLAYER_MOVE.jumpBufferTime;
+      player.jumpBufferTimer = Math.max(0, player.jumpBufferTimer - dt);
+
+      if (player.rollT <= 0 && player.hurtT <= 0 && player.dashT <= 0){
         if (left) { player.vx -= accel * dt; player.face = -1; }
         if (right){ player.vx += accel * dt; player.face =  1; }
       }
+
+      if (jumpReleased && player.vy < 0){
+        player.vy *= PLAYER_MOVE.jumpCut;
+        player.jumpHoldTimer = 0;
+      }
   
       // Jump
-      if (jump && player.onGround && player.rollT <= 0 && player.hurtT <= 0){
-        player.vy = -620;
+      let jumpedThisFrame = false;
+      if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0 && canJump){
+        player.vy = -PLAYER_MOVE.jumpSpeed;
         player.onGround = false;
+        player.coyoteTimer = 0;
+        player.jumpBufferTimer = 0;
+        player.jumpHoldTimer = PLAYER_MOVE.jumpHoldTime;
+        jumpedThisFrame = true;
+      }
+
+      if (input.dash && player.dashT <= 0 && player.rollT <= 0 && player.hurtT <= 0 && player.parryT <= 0 && !player.isDrinking){
+        if (player.onGround || player.dashAvailable){
+          const dashDir = left ? -1 : (right ? 1 : player.face);
+          player.dashT = PLAYER_MOVE.dashDuration;
+          player.dashDir = dashDir;
+          player.vx = PLAYER_MOVE.dashSpeed * dashDir;
+          player.vy = 0;
+          if (!player.onGround) player.dashAvailable = false;
+        }
       }
   
       // Apply gravity/friction
-      player.vy += G.gravity * dt;
-      player.vx *= player.onGround ? G.friction : G.airFriction;
-      player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
+      let gravity = G.gravity;
+      if (player.dashT > 0){
+        player.vx = PLAYER_MOVE.dashSpeed * player.dashDir;
+      } else {
+        if (jumpHeld && player.jumpHoldTimer > 0){
+          if (player.vy < 0){
+            gravity *= PLAYER_MOVE.jumpHoldGravityFactor;
+          }
+          player.jumpHoldTimer = Math.max(0, player.jumpHoldTimer - dt);
+        } else if (!jumpHeld){
+          player.jumpHoldTimer = 0;
+        }
+        player.vy += gravity * dt;
+        player.vx *= player.onGround ? PLAYER_MOVE.frictionGround : PLAYER_MOVE.frictionAir;
+        player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
+      }
+
+      player.jumpHeldPrev = jumpHeld;
   
       // Combat actions
       if (input.execute) tryExecute();
@@ -2285,6 +2361,14 @@ import {
   
       // Move & collide
       moveAndCollide(player, dt);
+
+      if (!jumpedThisFrame && player.onGround && player.jumpBufferTimer > 0 && canJump){
+        player.vy = -PLAYER_MOVE.jumpSpeed;
+        player.onGround = false;
+        player.coyoteTimer = 0;
+        player.jumpBufferTimer = 0;
+        player.jumpHoldTimer = PLAYER_MOVE.jumpHoldTime;
+      }
   
       // Attack hit
       if (player.attackT > 0){
