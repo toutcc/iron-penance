@@ -47,7 +47,7 @@
       <div class="login-actions" id="loginActions">
         <div class="login-section">
           <p class="login-section-title">Entrar com Google</p>
-          <button class="btn btn-primary" id="btnLogin">Entrar com Google</button>
+          <button class="btn btn-primary" id="googleLoginBtn">Entrar com Google</button>
         </div>
 
         <div class="login-divider"><span>ou</span></div>
@@ -55,30 +55,29 @@
         <div class="login-section">
           <p class="login-section-title">Email e senha</p>
           <div class="login-field">
-            <label for="inputEmail">Email</label>
-            <input id="inputEmail" type="email" autocomplete="email" placeholder="seu@email.com" />
+            <label for="emailInput">Email</label>
+            <input id="emailInput" type="email" autocomplete="email" placeholder="seu@email.com" />
           </div>
           <div class="login-field">
-            <label for="inputPassword">Senha</label>
-            <input id="inputPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+            <label for="passwordInput">Senha</label>
+            <input id="passwordInput" type="password" autocomplete="current-password" placeholder="••••••••" />
           </div>
           <div class="login-buttons">
-            <button class="btn btn-primary" id="btnEmailLogin">Entrar</button>
-            <button class="btn btn-ghost" id="btnEmailCreate">Criar conta</button>
+            <button class="btn btn-primary" id="emailLoginBtn">Entrar</button>
+            <button class="btn btn-ghost" id="emailRegisterBtn">Criar conta</button>
           </div>
-          <button class="btn btn-link" id="btnEmailReset" type="button">Esqueci minha senha</button>
-          <p class="login-status" id="emailStatus">Digite seu email para recuperar a senha.</p>
+          <button class="btn btn-link" id="resetPasswordBtn" type="button">Esqueci minha senha</button>
         </div>
 
-        <p class="login-status" id="loginStatus">Aguardando autenticação.</p>
+        <p class="login-status" id="authStatus">Aguardando…</p>
       </div>
 
       <div class="login-user" id="loginUser" aria-live="polite">
         <p class="login-user-name" id="userName">—</p>
         <p class="login-user-email" id="userEmail">—</p>
         <div class="login-user-actions">
-          <button class="btn btn-primary" id="btnContinue">Continuar</button>
-          <button class="btn btn-ghost" id="btnLogout">Sair</button>
+          <button class="btn btn-primary" id="continueBtn">Continuar</button>
+          <button class="btn btn-ghost" id="logoutBtn">Sair</button>
         </div>
       </div>
 
