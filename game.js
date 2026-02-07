@@ -784,6 +784,20 @@ import {
     function rectsOverlap(a, b){
       return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
     }
+
+    function getWallContact(ent){
+      const inset = 2;
+      const probeLeft = { x: ent.x - inset, y: ent.y + 2, w: inset, h: ent.h - 4 };
+      const probeRight = { x: ent.x + ent.w, y: ent.y + 2, w: inset, h: ent.h - 4 };
+      let left = false;
+      let right = false;
+      for (const s of level.solids){
+        if (!left && rectsOverlap(probeLeft, s)) left = true;
+        if (!right && rectsOverlap(probeRight, s)) right = true;
+        if (left && right) break;
+      }
+      return { left, right };
+    }
   
     // ===== Input =====
     const keys = new Set();
@@ -888,6 +902,9 @@ import {
       frictionGround: 0.78,
       frictionAir: 0.92,
       jumpSpeed: 620,
+      wallSlideSpeed: 200,
+      wallJumpSpeed: 600,
+      wallJumpPush: 420,
       coyoteTime: 0.10,
       jumpBufferTime: 0.10,
       jumpHoldTime: 0.18,
@@ -942,6 +959,7 @@ import {
         jumpBufferTimer: 0,
         jumpHoldTimer: 0,
         jumpHeldPrev: false,
+        wallJumpUnlocked: false,
   
         souls: 0,
         deathDrop: null, // {x,y,amount,active}
@@ -2239,6 +2257,7 @@ import {
       const right = keys.has("d") || keys.has("arrowright");
       const jumpHeld = keys.has("w") || keys.has("arrowup") || keys.has(" ");
       const restart = keys.has("r");
+      player.wallJumpUnlocked = inventoryState.owned.relic.includes("relic_iron");
   
       if (restart) resetAll();
   
@@ -2284,6 +2303,15 @@ import {
       const jumpPressed = jumpHeld && !player.jumpHeldPrev;
       const jumpReleased = !jumpHeld && player.jumpHeldPrev;
       const canJump = player.rollT <= 0 && player.hurtT <= 0 && player.dashT <= 0;
+      const wallContact = getWallContact(player);
+      const wallDir = wallContact.left ? -1 : (wallContact.right ? 1 : 0);
+      const wallSlideActive = player.wallJumpUnlocked
+        && wallDir !== 0
+        && !player.onGround
+        && player.vy > 0
+        && player.rollT <= 0
+        && player.dashT <= 0
+        && player.hurtT <= 0;
 
       if (player.onGround){
         player.coyoteTimer = PLAYER_MOVE.coyoteTime;
@@ -2307,7 +2335,15 @@ import {
   
       // Jump
       let jumpedThisFrame = false;
-      if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0 && canJump){
+      if (player.jumpBufferTimer > 0 && canJump && !player.onGround && wallDir !== 0 && player.wallJumpUnlocked){
+        player.vy = -PLAYER_MOVE.wallJumpSpeed;
+        player.vx = -wallDir * PLAYER_MOVE.wallJumpPush;
+        player.face = -wallDir;
+        player.coyoteTimer = 0;
+        player.jumpBufferTimer = 0;
+        player.jumpHoldTimer = PLAYER_MOVE.jumpHoldTime;
+        jumpedThisFrame = true;
+      } else if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0 && canJump){
         player.vy = -PLAYER_MOVE.jumpSpeed;
         player.onGround = false;
         player.coyoteTimer = 0;
@@ -2341,6 +2377,9 @@ import {
           player.jumpHoldTimer = 0;
         }
         player.vy += gravity * dt;
+        if (wallSlideActive){
+          player.vy = Math.min(player.vy, PLAYER_MOVE.wallSlideSpeed);
+        }
         player.vx *= player.onGround ? PLAYER_MOVE.frictionGround : PLAYER_MOVE.frictionAir;
         player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
       }
