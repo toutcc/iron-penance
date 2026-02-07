@@ -703,8 +703,8 @@ import {
   
     function makeEnemy(x, y, kind="hollow"){
       const base = (kind === "knight")
-        ? {hpMax: 160, dmg: 22, speed: 150, aggro: 520, windup: 0.33, cooldown: 0.65, poiseMax: 90}
-        : {hpMax: 90, dmg: 14, speed: 120, aggro: 420, windup: 0.28, cooldown: 0.70, poiseMax: 60};
+        ? {hpMax: 160, dmg: 22, speed: 150, aggro: 520, windup: 0.25, cooldown: 0.65, poiseMax: 90}
+        : {hpMax: 90, dmg: 14, speed: 120, aggro: 420, windup: 0.25, cooldown: 0.70, poiseMax: 60};
   
       return {
         kind,
@@ -718,6 +718,8 @@ import {
         poiseMax: base.poiseMax,
         poise: base.poiseMax,
         staggerT: 0,
+        attackCD: 0,
+        missRecover: 0.22,
   
         // ai
         state: "idle", // idle, chase, windup, attack, recover, dead
@@ -1073,6 +1075,7 @@ import {
       e.hitT = Math.max(0, e.hitT - dt);
       e.invulT = Math.max(0, e.invulT - dt);
       e.staggerT = Math.max(0, e.staggerT - dt);
+      e.attackCD = Math.max(0, e.attackCD - dt);
   
       const px = player.x + player.w/2;
       const ex = e.x + e.w/2;
@@ -1109,7 +1112,7 @@ import {
   
         // attack if close and on ground
         const range = (e.kind === "knight") ? 56 : 46;
-        if (dist < range && e.onGround){
+        if (dist < range && e.onGround && e.attackCD <= 0){
           e.state = "windup";
           e.t = e.windup;
           e.vx *= 0.30;
@@ -1117,6 +1120,11 @@ import {
       }
       else if (e.state === "windup"){
         e.vx *= 0.85;
+        const range = (e.kind === "knight") ? 56 : 46;
+        if (dist > range * 1.25){
+          e.state = "chase";
+          e.t = 0;
+        }
         if (e.t <= 0){
           e.state = "attack";
           e.t = 0.12; // active hit frames
@@ -1125,16 +1133,30 @@ import {
       else if (e.state === "attack"){
         // lunge
         e.vx = lerp(e.vx, (e.speed + 80) * facing, 0.22);
+        const range = (e.kind === "knight") ? 56 : 46;
+        if (dist > range * 1.6){
+          e.state = "recover";
+          e.t = e.cooldown * 0.6;
+          e.attackCD = Math.max(e.attackCD, e.cooldown);
+        }
   
         // hit player during active frames
         const hb = {x: e.x + (facing === 1 ? e.w : -28), y: e.y + 12, w: 28, h: 24};
         if (rectsOverlap(getPlayerHitbox(), hb)){
-          playerTakeDamage(e.dmg, e.x);
+          if (player.invulT > 0){
+            e.state = "recover";
+            e.t = e.missRecover;
+            e.attackCD = Math.max(e.attackCD, e.cooldown * 0.6);
+            e.vx *= 0.2;
+          } else {
+            playerTakeDamage(e.dmg, e.x);
+          }
         }
   
         if (e.t <= 0){
           e.state = "recover";
           e.t = e.cooldown;
+          e.attackCD = Math.max(e.attackCD, e.cooldown);
           e.vx *= 0.25;
         }
       }
@@ -1384,9 +1406,20 @@ import {
         ctx.globalAlpha = 1;
   
         // body
-        ctx.fillStyle = e.kind === "knight" ? "#8b95a8" : "#6d7a8f";
+        const baseBody = e.kind === "knight" ? "#8b95a8" : "#6d7a8f";
+        ctx.fillStyle = baseBody;
+        if (e.state === "windup"){
+          const pulse = 0.45 + Math.sin(now()/1000 * 18) * 0.25;
+          ctx.fillStyle = `rgba(255,140,90,${pulse})`;
+        }
         if (e.hitT > 0) ctx.fillStyle = "#caa1a1";
         ctx.fillRect(e.x + ox, e.y + oy, e.w, e.h);
+
+        if (e.state === "windup"){
+          ctx.strokeStyle = "rgba(255,160,120,.65)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(e.x + ox - 2, e.y + oy - 2, e.w + 4, e.h + 4);
+        }
   
         // face marker
         ctx.fillStyle = "#0a0c12";
