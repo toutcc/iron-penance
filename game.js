@@ -732,6 +732,7 @@ import {
   
     // ===== Camera =====
     const cam = {x:0, y:0, shake:0};
+    const deathFade = {t: 0, duration: 0.9};
   
     function centerCamera(){
       const targetX = player.x + player.w/2 - canvas.width/2;
@@ -898,6 +899,10 @@ import {
     }
   
     function dieAndRespawn(){
+      // clear previous stain if dying again before recovery
+      if (player.deathDrop && player.deathDrop.active){
+        player.deathDrop.active = false;
+      }
       // drop souls
       const dropAmount = Math.max(0, player.souls);
       if (dropAmount > 0){
@@ -905,7 +910,8 @@ import {
         player.souls = 0;
       }
       // respawn
-      toast("VOCÊ MORREU.");
+      toast("Você morreu.");
+      deathFade.t = deathFade.duration;
       player.hp = player.hpMax;
       player.st = player.stMax;
       player.estus = player.estusMax;
@@ -934,7 +940,7 @@ import {
       if (rectsOverlap(p, orb)){
         player.souls += d.amount;
         d.active = false;
-        toast(`Recuperou ${d.amount} souls.`);
+        toast("Almas recuperadas.");
       }
     }
   
@@ -1057,6 +1063,7 @@ import {
       player.rollT = Math.max(0, player.rollT - dt);
       player.rollCD = Math.max(0, player.rollCD - dt);
       player.drinkTimer = Math.max(0, player.drinkTimer - dt);
+      deathFade.t = Math.max(0, deathFade.t - dt);
       if (player.isDrinking && player.drinkTimer <= 0){
         player.isDrinking = false;
       }
@@ -1131,7 +1138,10 @@ import {
       if (cam.shake > 0) cam.shake = Math.max(0, cam.shake - dt * 30);
   
       // Fell off world safety
-      if (player.y > level.h + 300) dieAndRespawn();
+      const fellOut = player.y > level.h + 200;
+      const leftVoid = player.x < -200;
+      const rightVoid = player.x > level.w + 200;
+      if (fellOut || leftVoid || rightVoid) dieAndRespawn();
     }
   
     // ===== Render =====
@@ -1287,6 +1297,13 @@ import {
       stText.textContent = `${Math.floor(player.st)}/${player.stMax}`;
       soulsText.textContent = `${player.souls}`;
       estusText.textContent = `${player.estus}/${player.estusMax}`;
+
+      if (deathFade.t > 0){
+        const progress = 1 - (deathFade.t / deathFade.duration);
+        const alpha = progress < 0.5 ? (progress / 0.5) : ((1 - progress) / 0.5);
+        ctx.fillStyle = `rgba(0,0,0,${Math.min(1, Math.max(0, alpha))})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
     }
   
     // ===== Main Loop =====
