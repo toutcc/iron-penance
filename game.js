@@ -14,7 +14,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
 
-(() => {
+(async () => {
   
     "use strict";
   
@@ -43,29 +43,24 @@ import {
   const loginScreen = document.getElementById("loginScreen");
   const loginActions = document.getElementById("loginActions");
   const loginUser = document.getElementById("loginUser");
-  const loginStatus = document.getElementById("loginStatus");
-  const emailStatus = document.getElementById("emailStatus");
+  const authStatus = document.getElementById("authStatus");
   const userName = document.getElementById("userName");
   const userEmail = document.getElementById("userEmail");
-  const btnLogin = document.getElementById("btnLogin");
-  const btnLogout = document.getElementById("btnLogout");
-  const btnContinue = document.getElementById("btnContinue");
-  const inputEmail = document.getElementById("inputEmail");
-  const inputPassword = document.getElementById("inputPassword");
-  const btnEmailLogin = document.getElementById("btnEmailLogin");
-  const btnEmailCreate = document.getElementById("btnEmailCreate");
-  const btnEmailReset = document.getElementById("btnEmailReset");
+  const btnLogin = document.getElementById("googleLoginBtn");
+  const btnLogout = document.getElementById("logoutBtn");
+  const btnContinue = document.getElementById("continueBtn");
+  const inputEmail = document.getElementById("emailInput");
+  const inputPassword = document.getElementById("passwordInput");
+  const btnEmailLogin = document.getElementById("emailLoginBtn");
+  const btnEmailCreate = document.getElementById("emailRegisterBtn");
+  const btnEmailReset = document.getElementById("resetPasswordBtn");
 
   const provider = new GoogleAuthProvider();
   let state = "login";
   let rafId = null;
 
   const setStatus = (message) => {
-    loginStatus.textContent = message;
-  };
-
-  const setEmailStatus = (message) => {
-    emailStatus.textContent = message;
+    authStatus.textContent = message;
   };
 
   const setLoginUi = (user) => {
@@ -75,14 +70,13 @@ import {
       userEmail.textContent = user.email || "Sem email disponível";
       loginActions.classList.add("is-hidden");
       loginUser.classList.add("is-visible");
-      setStatus("Autenticado. Pronto para continuar.");
+      setStatus(`Logado como ${display}.`);
     } else {
       userName.textContent = "—";
       userEmail.textContent = "—";
       loginActions.classList.remove("is-hidden");
       loginUser.classList.remove("is-visible");
-      setStatus("Aguardando autenticação.");
-      setEmailStatus("Digite seu email para recuperar a senha.");
+      setStatus("Aguardando…");
     }
   };
 
@@ -116,13 +110,13 @@ import {
   const mapAuthError = (error) => {
     const code = error?.code || "";
     const messages = {
-      "auth/invalid-email": "Email inválido. Verifique o formato.",
-      "auth/user-not-found": "Usuário não encontrado. Crie uma conta.",
-      "auth/wrong-password": "Senha incorreta. Tente novamente.",
-      "auth/email-already-in-use": "Este email já está em uso.",
-      "auth/weak-password": "Senha fraca. Use ao menos 6 caracteres.",
-      "auth/popup-closed-by-user": "Login cancelado antes de concluir.",
-      "auth/unauthorized-domain": "Domínio não autorizado no Firebase. Adicione este domínio em Authentication > Settings."
+      "auth/invalid-email": "Email inválido.",
+      "auth/user-not-found": "Conta não encontrada.",
+      "auth/wrong-password": "Senha incorreta.",
+      "auth/email-already-in-use": "Esse email já está em uso.",
+      "auth/weak-password": "Senha fraca (mínimo 6 caracteres).",
+      "auth/popup-closed-by-user": "Login cancelado.",
+      "auth/unauthorized-domain": "Domínio não autorizado no Firebase (adicione localhost/seuuser.github.io)."
     };
     return messages[code] || "Não foi possível autenticar agora.";
   };
@@ -134,17 +128,29 @@ import {
 
   const validateEmail = (email) => {
     if (!email) {
-      toast("Informe seu email.");
-      setEmailStatus("Preencha o email para continuar.");
+      const message = "Informe seu email.";
+      toast(message);
+      setStatus(`Erro: ${message}`);
       return false;
     }
     return true;
   };
 
-  const validatePassword = (password) => {
+  const validatePasswordNotEmpty = (password) => {
+    if (!password) {
+      const message = "Informe sua senha.";
+      toast(message);
+      setStatus(`Erro: ${message}`);
+      return false;
+    }
+    return true;
+  };
+
+  const validatePasswordStrength = (password) => {
     if (password.length < 6) {
-      toast("A senha precisa ter ao menos 6 caracteres.");
-      setEmailStatus("Use uma senha com no mínimo 6 caracteres.");
+      const message = "Senha fraca (mínimo 6 caracteres).";
+      toast(message);
+      setStatus(`Erro: ${message}`);
       return false;
     }
     return true;
@@ -157,21 +163,24 @@ import {
     btnEmailReset.disabled = disabled;
   };
 
-  setPersistence(auth, browserLocalPersistence).catch((error) => {
-    console.error("Falha ao definir persistência:", error);
-    toast("Não foi possível manter o login neste navegador.");
-  });
+  try {
+    await setPersistence(auth, browserLocalPersistence);
+  } catch (error) {
+    console.warn("Falha ao definir persistência:", error);
+    const message = "Não foi possível manter o login neste navegador.";
+    setStatus(`Erro: ${message}`);
+    toast(message);
+  }
 
   btnLogin.addEventListener("click", async () => {
-    setStatus("Conectando...");
+    setStatus("Conectando…");
     setAuthButtonsDisabled(true);
     try {
       await signInWithPopup(auth, provider);
-      setStatus("Login realizado. Pronto para continuar.");
     } catch (error) {
-      console.error("Falha no login:", error);
+      console.warn("Falha no login:", error);
       const message = mapAuthError(error);
-      setStatus(message);
+      setStatus(`Erro: ${message}`);
       toast(message);
     } finally {
       setAuthButtonsDisabled(false);
@@ -180,17 +189,16 @@ import {
 
   btnEmailLogin.addEventListener("click", async () => {
     const { email, password } = getEmailAndPassword();
-    if (!validateEmail(email) || !validatePassword(password)) return;
-    setEmailStatus("Entrando com email e senha...");
+    if (!validateEmail(email) || !validatePasswordNotEmpty(password)) return;
+    setStatus("Conectando…");
     setAuthButtonsDisabled(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      setEmailStatus("Login realizado. Você pode continuar.");
       toast("Login realizado.");
     } catch (error) {
-      console.error("Falha no login por email:", error);
+      console.warn("Falha no login por email:", error);
       const message = mapAuthError(error);
-      setEmailStatus(message);
+      setStatus(`Erro: ${message}`);
       toast(message);
     } finally {
       setAuthButtonsDisabled(false);
@@ -199,8 +207,8 @@ import {
 
   btnEmailCreate.addEventListener("click", async () => {
     const { email, password } = getEmailAndPassword();
-    if (!validateEmail(email) || !validatePassword(password)) return;
-    setEmailStatus("Criando conta...");
+    if (!validateEmail(email) || !validatePasswordStrength(password)) return;
+    setStatus("Conectando…");
     setAuthButtonsDisabled(true);
     try {
       const credential = await createUserWithEmailAndPassword(auth, email, password);
@@ -208,12 +216,11 @@ import {
       if (displayName) {
         await updateProfile(credential.user, { displayName });
       }
-      setEmailStatus("Conta criada. Você já pode continuar.");
       toast("Conta criada com sucesso.");
     } catch (error) {
-      console.error("Falha ao criar conta:", error);
+      console.warn("Falha ao criar conta:", error);
       const message = mapAuthError(error);
-      setEmailStatus(message);
+      setStatus(`Erro: ${message}`);
       toast(message);
     } finally {
       setAuthButtonsDisabled(false);
@@ -223,29 +230,37 @@ import {
   btnEmailReset.addEventListener("click", async () => {
     const { email } = getEmailAndPassword();
     if (!validateEmail(email)) return;
-    setEmailStatus("Enviando email de recuperação...");
+    setStatus("Conectando…");
     setAuthButtonsDisabled(true);
     try {
       await sendPasswordResetEmail(auth, email);
-      setEmailStatus("Email de recuperação enviado.");
-      toast("Confira sua caixa de entrada para redefinir a senha.");
-    } catch (error) {
-      console.error("Falha ao enviar recuperação:", error);
-      const message = mapAuthError(error);
-      setEmailStatus(message);
+      const message = "Email de recuperação enviado.";
+      setStatus(message);
       toast(message);
+    } catch (error) {
+      console.warn("Falha ao enviar recuperação:", error);
+      if (error?.code === "auth/user-not-found") {
+        const message = "Email de recuperação enviado.";
+        setStatus(message);
+        toast(message);
+      } else {
+        const message = mapAuthError(error);
+        setStatus(`Erro: ${message}`);
+        toast(message);
+      }
     } finally {
       setAuthButtonsDisabled(false);
     }
   });
 
   btnLogout.addEventListener("click", async () => {
-    setStatus("Saindo...");
+    setStatus("Conectando…");
     try {
       await signOut(auth);
     } catch (error) {
-      console.error("Falha ao sair:", error);
-      setStatus("Não foi possível sair agora.");
+      console.warn("Falha ao sair:", error);
+      const message = "Não foi possível sair agora.";
+      setStatus(`Erro: ${message}`);
     }
   });
 
@@ -978,5 +993,5 @@ import {
     toast("Bem-vindo. Cuidado com a stamina.");
     cpText.textContent = player.checkpoint.id;
     stopGame();
-  })();
+})();
   
