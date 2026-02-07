@@ -38,6 +38,14 @@ import {
   const damageFlash = document.getElementById("damageFlash");
   const bossBar = document.getElementById("bossBar");
   const bossHpFill = document.getElementById("bossHpFill");
+  const inventoryScreen = document.getElementById("inventoryScreen");
+  const inventoryWeight = document.getElementById("inventoryWeight");
+  const inventoryDetails = document.getElementById("inventoryDetails");
+  const inventorySlots = Array.from(document.querySelectorAll(".inventory-slot"));
+  const slotWeapon = document.getElementById("slotWeapon");
+  const slotArmor = document.getElementById("slotArmor");
+  const slotRelic = document.getElementById("slotRelic");
+  const slotConsumable = document.getElementById("slotConsumable");
   const toast = (msg, ms = 1300) => {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -80,6 +88,7 @@ import {
   let rafId = null;
   let menuRafId = null;
   let menuIndex = 0;
+  let inventoryIndex = 0;
   let fpsLimit = 60;
   let showFps = true;
   let volume = 70;
@@ -145,16 +154,35 @@ import {
     hud.classList.remove("hidden");
     canvas.classList.remove("hidden");
     updateBossBar();
+    inventoryScreen.classList.add("hidden");
+  };
+
+  const showInventory = () => {
+    showGame();
+    inventoryScreen.classList.remove("hidden");
+    inventoryScreen.setAttribute("aria-hidden", "false");
+    updateInventoryUI();
+  };
+
+  const hideInventory = () => {
+    inventoryScreen.classList.add("hidden");
+    inventoryScreen.setAttribute("aria-hidden", "true");
   };
 
   const setState = (next) => {
     if (state === next) return;
     state = next;
     if (state === "game") {
+      hideInventory();
       showGame();
       stopMenuLoop();
       startGame();
+    } else if (state === "inventory") {
+      stopMenuLoop();
+      stopGame();
+      showInventory();
     } else {
+      hideInventory();
       stopGame();
       if (state === "login") {
         showLogin();
@@ -244,6 +272,7 @@ import {
           loadRoom(data.player.checkpoint.roomId, { spawn: { x: data.player.checkpoint.x, y: data.player.checkpoint.y } });
         }
       }
+      refreshEquipmentStats();
       toast("Save carregado.");
     } catch (error) {
       console.warn("Falha ao carregar save:", error);
@@ -253,7 +282,7 @@ import {
 
   const handleMenuAction = async (action) => {
     if (action === "start") {
-      resetAll();
+      resetAll({ resetInventory: true });
       setState("game");
       playMenuConfirm();
       return;
@@ -585,6 +614,101 @@ import {
     const lerp = (a,b,t) => a + (b-a)*t;
     const sign = (x) => (x < 0 ? -1 : x > 0 ? 1 : 0);
     const now = () => performance.now();
+
+    // ===== Inventory & Equipment Data =====
+    const WEAPONS = {
+      short_sword: {
+        id: "short_sword",
+        name: "Espada Curta",
+        description: "Uma lâmina simples, rápida e fiel.",
+        damage: 22,
+        staminaCost: 20,
+        attackSpeed: 1.15,
+        poiseDamage: 24,
+        reach: 32,
+        weight: 18,
+        canParry: true
+      },
+      long_sword: {
+        id: "long_sword",
+        name: "Espada Longa",
+        description: "Equilíbrio entre alcance e controle.",
+        damage: 28,
+        staminaCost: 26,
+        attackSpeed: 1.0,
+        poiseDamage: 32,
+        reach: 40,
+        weight: 28,
+        canParry: true
+      },
+      heavy_sword: {
+        id: "heavy_sword",
+        name: "Espada Pesada",
+        description: "Cortes brutais que quebram a guarda.",
+        damage: 36,
+        staminaCost: 34,
+        attackSpeed: 0.8,
+        poiseDamage: 46,
+        reach: 46,
+        weight: 40,
+        canParry: false
+      }
+    };
+
+    const ARMORS = {
+      light_armor: {
+        id: "light_armor",
+        name: "Armadura Leve",
+        description: "Tecido reforçado com placas discretas.",
+        defense: 4,
+        weight: 12,
+        poiseBonus: 4
+      },
+      medium_armor: {
+        id: "medium_armor",
+        name: "Armadura Média",
+        description: "Proteção equilibrada para peregrinos.",
+        defense: 9,
+        weight: 22,
+        poiseBonus: 8
+      },
+      heavy_armor: {
+        id: "heavy_armor",
+        name: "Armadura Pesada",
+        description: "Aço penitente que reduz a mobilidade.",
+        defense: 15,
+        weight: 38,
+        poiseBonus: 14
+      }
+    };
+
+    const RELICS = {
+      relic_ember: {
+        id: "relic_ember",
+        name: "Relíquia da Brasa",
+        description: "Aumenta levemente a regeneração de stamina."
+      }
+    };
+
+    const CONSUMABLES = {
+      estus: {
+        id: "estus",
+        name: "Frasco de Estus",
+        description: "Restaura parte da vida ao ser consumido."
+      }
+    };
+
+    const EQUIP_LOAD = {
+      max: 80,
+      fast: 0.4,
+      medium: 0.7
+    };
+
+    const ROLL_PROFILES = {
+      fast: { label: "Rápida", rollSpeed: 620, rollDistance: 1.1, iFrames: 0.32, moveSpeed: 1.06 },
+      medium: { label: "Média", rollSpeed: 520, rollDistance: 1.0, iFrames: 0.24, moveSpeed: 1.0 },
+      heavy: { label: "Pesada", rollSpeed: 420, rollDistance: 0.85, iFrames: 0.18, moveSpeed: 0.9 }
+    };
   
     function rectsOverlap(a, b){
       return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -594,11 +718,36 @@ import {
     const keys = new Set();
     window.addEventListener("keydown", (e) => {
       const key = e.key.toLowerCase();
+      if (key === "tab") {
+        e.preventDefault();
+        if (state === "game") setState("inventory");
+        else if (state === "inventory") setState("game");
+        return;
+      }
       if (state === "game") {
         keys.add(key);
         if (key === "q" && !e.repeat) input.drink = true;
         if (key === "i" && !e.repeat) input.execute = true;
+        if (key === "l" && !e.repeat) input.parry = true;
         if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
+        return;
+      }
+      if (state === "inventory") {
+        if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
+        if (key === "arrowup") {
+          inventoryIndex = (inventoryIndex - 1 + inventoryOrder.length) % inventoryOrder.length;
+          updateInventoryUI();
+        }
+        if (key === "arrowdown") {
+          inventoryIndex = (inventoryIndex + 1) % inventoryOrder.length;
+          updateInventoryUI();
+        }
+        if (key === "enter") {
+          cycleEquipment(inventoryOrder[inventoryIndex]);
+        }
+        if (key === "escape") {
+          setState("game");
+        }
         return;
       }
       if (state === "menu" || state === "options" || state === "extras") {
@@ -636,6 +785,7 @@ import {
       roll:false,
       drink:false,
       execute:false,
+      parry:false,
     };
   
     function consumeActions(){
@@ -643,6 +793,7 @@ import {
       input.roll = false;
       input.drink = false;
       input.execute = false;
+      input.parry = false;
     }
   
     // ===== World =====
@@ -674,7 +825,12 @@ import {
         poise: 0,
         estusMax: baseEstusMax,
         estus: baseEstusMax,
-  
+        defense: 0,
+        poiseBonus: 0,
+        equipLoad: 0,
+        equipLoadRatio: 0,
+        rollProfile: "medium",
+
         // state timers
         hurtT: 0,
         invulT: 0,
@@ -682,6 +838,8 @@ import {
         attackCD: 0,
         rollT: 0,
         rollCD: 0,
+        parryT: 0,
+        parryCD: 0,
         isDrinking: false,
         drinkTimer: 0,
   
@@ -744,6 +902,10 @@ import {
       };
     }
 
+    const miniBossKnight = makeEnemy(1480, 740, "knight");
+    miniBossKnight.isMiniBoss = true;
+    miniBossKnight.dropItem = { slot: "weapon", itemId: "heavy_sword" };
+
     const rooms = {
       ruins_start: {
         id: "ruins_start",
@@ -773,6 +935,9 @@ import {
           makeEnemy(980, 520, "hollow"),
           makeEnemy(1480, 740, "knight"),
         ],
+        pickups: [
+          { id: "pickup_long_sword", slot: "weapon", itemId: "long_sword", x: 620, y: 700 - YSHIFT },
+        ],
         neighbors: { right: "broken_gallery" }
       },
       broken_gallery: {
@@ -800,7 +965,7 @@ import {
         enemies: [
           makeEnemy(520, 740, "hollow"),
           makeEnemy(980, 700 - YSHIFT, "hollow"),
-          makeEnemy(1480, 740, "knight"),
+          miniBossKnight,
           makeEnemy(1860, 520 - YSHIFT, "hollow"),
         ],
         neighbors: { left: "ruins_start", right: "silent_abyss" }
@@ -832,6 +997,9 @@ import {
           makeEnemy(540, 580 - YSHIFT, "hollow"),
           makeEnemy(1500, 500 - YSHIFT, "knight"),
         ],
+        pickups: [
+          { id: "pickup_medium_armor", slot: "armor", itemId: "medium_armor", x: 880, y: 500 - YSHIFT },
+        ],
         neighbors: { left: "broken_gallery", right: "antechamber" },
         voidKill: true,
         voidY: 720 - YSHIFT + 240
@@ -856,6 +1024,9 @@ import {
           { id: "Ante-câmara", x: 760, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 720, spawnY: 740 - YSHIFT },
         ],
         enemies: [],
+        pickups: [
+          { id: "pickup_heavy_armor", slot: "armor", itemId: "heavy_armor", x: 980, y: 700 - YSHIFT },
+        ],
         neighbors: { left: "silent_abyss", right: "boss_arena" },
         message: "Uma presença opressora aguarda…"
       },
@@ -888,6 +1059,184 @@ import {
     const player = makePlayer();
     let enemies = [];
 
+    // ===== Inventory State =====
+    const defaultInventoryState = () => ({
+      equipment: {
+        weapon: "short_sword",
+        armor: "light_armor",
+        relic: "relic_ember",
+        consumable: "estus"
+      },
+      owned: {
+        weapon: ["short_sword"],
+        armor: ["light_armor"],
+        relic: ["relic_ember"],
+        consumable: ["estus"]
+      }
+    });
+
+    const inventoryState = defaultInventoryState();
+    const inventoryOrder = ["weapon", "armor", "relic", "consumable"];
+
+    const getWeapon = (id) => WEAPONS[id] || WEAPONS.short_sword;
+    const getArmor = (id) => ARMORS[id] || ARMORS.light_armor;
+    const getRelic = (id) => RELICS[id] || RELICS.relic_ember;
+    const getConsumable = (id) => CONSUMABLES[id] || CONSUMABLES.estus;
+
+    const isItemOwned = (slot, itemId) => inventoryState.owned[slot]?.includes(itemId);
+
+    const getItemBySlot = (slot, itemId) => {
+      if (slot === "weapon") return getWeapon(itemId);
+      if (slot === "armor") return getArmor(itemId);
+      if (slot === "relic") return getRelic(itemId);
+      if (slot === "consumable") return getConsumable(itemId);
+      return null;
+    };
+
+    const saveInventory = () => {
+      localStorage.setItem("ironpenance_inventory", JSON.stringify(inventoryState));
+    };
+
+    const loadInventory = () => {
+      const raw = localStorage.getItem("ironpenance_inventory");
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw);
+        if (!data?.owned || !data?.equipment) return;
+        inventoryState.owned = {
+          weapon: Array.isArray(data.owned.weapon) ? data.owned.weapon : inventoryState.owned.weapon,
+          armor: Array.isArray(data.owned.armor) ? data.owned.armor : inventoryState.owned.armor,
+          relic: Array.isArray(data.owned.relic) ? data.owned.relic : inventoryState.owned.relic,
+          consumable: Array.isArray(data.owned.consumable) ? data.owned.consumable : inventoryState.owned.consumable
+        };
+        inventoryState.equipment = {
+          weapon: data.equipment.weapon || inventoryState.equipment.weapon,
+          armor: data.equipment.armor || inventoryState.equipment.armor,
+          relic: data.equipment.relic || inventoryState.equipment.relic,
+          consumable: data.equipment.consumable || inventoryState.equipment.consumable
+        };
+        inventoryOrder.forEach((slot) => {
+          const list = inventoryState.owned[slot] || [];
+          if (!list.includes(inventoryState.equipment[slot])) {
+            inventoryState.equipment[slot] = list[0] || inventoryState.equipment[slot];
+          }
+        });
+      } catch (error) {
+        console.warn("Falha ao carregar inventário:", error);
+      }
+    };
+
+    const refreshEquipmentStats = () => {
+      const weapon = getWeapon(inventoryState.equipment.weapon);
+      const armor = getArmor(inventoryState.equipment.armor);
+      const totalWeight = weapon.weight + armor.weight;
+      const ratio = totalWeight / EQUIP_LOAD.max;
+      let profile = "medium";
+      if (ratio < EQUIP_LOAD.fast) profile = "fast";
+      if (ratio > EQUIP_LOAD.medium) profile = "heavy";
+      player.defense = armor.defense;
+      player.poiseBonus = armor.poiseBonus;
+      player.equipLoad = totalWeight;
+      player.equipLoadRatio = ratio;
+      player.rollProfile = profile;
+    };
+
+    const grantItem = (slot, itemId, source = "pickup") => {
+      if (!inventoryState.owned[slot]) inventoryState.owned[slot] = [];
+      if (!inventoryState.owned[slot].includes(itemId)) {
+        inventoryState.owned[slot].push(itemId);
+        toast(`Obteve ${getItemBySlot(slot, itemId)?.name || "item"}.`);
+      } else {
+        toast("Item já obtido.");
+      }
+      if (!inventoryState.equipment[slot]) {
+        inventoryState.equipment[slot] = itemId;
+      }
+      saveInventory();
+      refreshEquipmentStats();
+      if (state === "inventory") updateInventoryUI();
+    };
+
+    const cycleEquipment = (slot) => {
+      const list = inventoryState.owned[slot] || [];
+      if (!list.length) return;
+      const current = inventoryState.equipment[slot];
+      const idx = Math.max(0, list.indexOf(current));
+      const next = list[(idx + 1) % list.length];
+      inventoryState.equipment[slot] = next;
+      toast(`${getItemBySlot(slot, next)?.name || "Item"} equipado.`);
+      saveInventory();
+      refreshEquipmentStats();
+      updateInventoryUI();
+    };
+
+    const getRollProfile = () => ROLL_PROFILES[player.rollProfile] || ROLL_PROFILES.medium;
+
+    const updateInventoryUI = () => {
+      const weapon = getWeapon(inventoryState.equipment.weapon);
+      const armor = getArmor(inventoryState.equipment.armor);
+      const relic = getRelic(inventoryState.equipment.relic);
+      const consumable = getConsumable(inventoryState.equipment.consumable);
+      slotWeapon.textContent = weapon.name;
+      slotArmor.textContent = armor.name;
+      slotRelic.textContent = relic.name;
+      slotConsumable.textContent = consumable.name;
+
+      inventorySlots.forEach((slotEl, index) => {
+        slotEl.classList.toggle("is-selected", index === inventoryIndex);
+      });
+
+      const selectedSlot = inventoryOrder[inventoryIndex];
+      const selectedId = inventoryState.equipment[selectedSlot];
+      const item = getItemBySlot(selectedSlot, selectedId);
+      const profile = getRollProfile();
+      const weightText = `Peso ${player.equipLoad.toFixed(1)}/${EQUIP_LOAD.max} • Rolagem ${profile.label}`;
+      inventoryWeight.textContent = weightText;
+
+      if (selectedSlot === "weapon") {
+        inventoryDetails.innerHTML = `
+          <h3>${item.name}</h3>
+          <p>${item.description}</p>
+          <ul>
+            <li>Dano: ${item.damage}</li>
+            <li>Stamina: ${item.staminaCost}</li>
+            <li>Velocidade: ${item.attackSpeed.toFixed(2)}</li>
+            <li>Poise: ${item.poiseDamage}</li>
+            <li>Alcance: ${item.reach}</li>
+            <li>Peso: ${item.weight}</li>
+            <li>Parry: ${item.canParry ? "Sim" : "Não"}</li>
+          </ul>
+        `;
+      } else if (selectedSlot === "armor") {
+        inventoryDetails.innerHTML = `
+          <h3>${item.name}</h3>
+          <p>${item.description}</p>
+          <ul>
+            <li>Defesa: ${item.defense}</li>
+            <li>Poise: +${item.poiseBonus}</li>
+            <li>Peso: ${item.weight}</li>
+            <li>I-frames: ${profile.iFrames.toFixed(2)}s</li>
+          </ul>
+        `;
+      } else if (selectedSlot === "consumable") {
+        inventoryDetails.innerHTML = `
+          <h3>${item.name}</h3>
+          <p>${item.description}</p>
+          <ul>
+            <li>Quantidade: ${player.estus}/${player.estusMax}</li>
+          </ul>
+        `;
+      } else {
+        inventoryDetails.innerHTML = `
+          <h3>${item.name}</h3>
+          <p>${item.description}</p>
+        `;
+      }
+    };
+
+    loadInventory();
+    refreshEquipmentStats();
+
     let currentRoomId = "ruins_start";
     let currentRoom = rooms[currentRoomId];
     let boss = null;
@@ -902,6 +1251,14 @@ import {
         e._sx = e.x;
         e._sy = e.y;
       }
+      if (room.pickups){
+        room.pickups.forEach((pickup) => {
+          if (pickup.active == null){
+            pickup.active = !isItemOwned(pickup.slot, pickup.itemId);
+          }
+        });
+      }
+      if (!room.drops) room.drops = [];
       room._init = true;
     };
 
@@ -1083,6 +1440,9 @@ import {
     }
   
     // ===== Combat =====
+    const getEquippedWeapon = () => getWeapon(inventoryState.equipment.weapon);
+    const getEquippedArmor = () => getArmor(inventoryState.equipment.armor);
+
     function staminaSpend(amount){
       if (player.st < amount) return false;
       player.st -= amount;
@@ -1090,25 +1450,42 @@ import {
     }
   
     function startAttack(){
+      const weapon = getEquippedWeapon();
       if (player.isDrinking) return;
-      if (player.attackCD > 0 || player.rollT > 0 || player.hurtT > 0) return;
-      if (!staminaSpend(22)) { toast("Sem stamina!"); return; }
-      player.attackT = 0.20;      // active window
-      player.attackCD = 0.42;     // total cooldown
+      if (player.attackCD > 0 || player.rollT > 0 || player.hurtT > 0 || player.parryT > 0) return;
+      if (!staminaSpend(weapon.staminaCost)) { toast("Sem stamina!"); return; }
+      const baseActive = 0.22;
+      const baseCooldown = 0.46;
+      player.attackT = baseActive / weapon.attackSpeed;      // active window
+      player.attackCD = baseCooldown / weapon.attackSpeed;   // total cooldown
       player.invulT = Math.max(player.invulT, 0); // no change
     }
   
     function startRoll(){
+      const profile = getRollProfile();
       if (player.isDrinking) return;
-      if (player.rollCD > 0 || player.attackT > 0 || player.hurtT > 0) return;
+      if (player.rollCD > 0 || player.attackT > 0 || player.hurtT > 0 || player.parryT > 0) return;
       if (!staminaSpend(28)) { toast("Sem stamina!"); return; }
-      player.rollT = 0.32;
-      player.rollCD = 0.55;
-      player.invulT = Math.max(player.invulT, 0.24); // i-frames
+      player.rollT = 0.32 * profile.rollDistance;
+      player.rollCD = 0.55 + (profile.rollDistance < 1 ? 0.08 : 0);
+      player.invulT = Math.max(player.invulT, profile.iFrames); // i-frames
       // burst
       const dir = player.face;
-      player.vx = 520 * dir;
+      player.vx = profile.rollSpeed * dir;
       if (!player.onGround) player.vy = Math.min(player.vy, 120);
+    }
+
+    function startParry(){
+      const weapon = getEquippedWeapon();
+      if (!weapon.canParry) {
+        toast("Esta arma não permite aparar.");
+        return;
+      }
+      if (player.isDrinking) return;
+      if (player.parryCD > 0 || player.attackT > 0 || player.rollT > 0 || player.hurtT > 0) return;
+      if (!staminaSpend(16)) { toast("Sem stamina!"); return; }
+      player.parryT = 0.22;
+      player.parryCD = 0.7;
     }
 
     function startDrink(){
@@ -1128,8 +1505,10 @@ import {
     }
   
     function getAttackHitbox(){
-      const range = 34;
-      const w = 34, h = 26;
+      const weapon = getEquippedWeapon();
+      const range = weapon.reach;
+      const w = 34 + Math.round((weapon.reach - 30) * 0.3);
+      const h = 26;
       const x = player.face === 1 ? (player.x + player.w + range - w) : (player.x - range);
       const y = player.y + 12;
       return {x, y, w, h};
@@ -1170,6 +1549,26 @@ import {
       return (e.kind === "knight") ? 120 : 60;
     }
 
+    // ===== Items & Drops =====
+    const createRoomDrop = (room, drop) => {
+      if (!room) return;
+      if (!room.drops) room.drops = [];
+      room.drops.push({ ...drop, active: true });
+    };
+
+    const handleEnemyKilled = (enemy) => {
+      if (!enemy?.dropItem || !currentRoom) return;
+      const { slot, itemId } = enemy.dropItem;
+      if (isItemOwned(slot, itemId)) return;
+      createRoomDrop(currentRoom, {
+        x: enemy.x + enemy.w / 2 - 10,
+        y: enemy.y + enemy.h - 18,
+        slot,
+        itemId
+      });
+      toast("Um item foi deixado para trás.");
+    };
+
     function tryExecute(){
       const px = player.x + player.w / 2;
       const py = player.y + player.h / 2;
@@ -1194,6 +1593,7 @@ import {
       best.staggerT = 0;
       best.vx *= 0.2;
       best.poise = 0;
+      handleEnemyKilled(best);
       spawnExecutionParticles(ex, ey);
       triggerHitStop(0.08);
       triggerShake(4, 6, 0.15);
@@ -1201,16 +1601,37 @@ import {
       toast("EXECUTADO");
     }
   
-    function playerTakeDamage(amount, fromX){
+    function playerTakeDamage(amount, fromX, attacker = null){
+      const weapon = getEquippedWeapon();
+      if (player.parryT > 0 && weapon.canParry) {
+        player.parryT = 0;
+        player.parryCD = Math.max(player.parryCD, 0.4);
+        if (attacker) {
+          if (attacker === boss) {
+            boss.state = "stagger";
+            boss.staggerT = 0.4;
+            boss.staggerCooldown = 1.2;
+          } else if (attacker.poiseMax != null) {
+            triggerStagger(attacker);
+          }
+        }
+        triggerHitStop(0.06);
+        triggerShake(3, 5, 0.12);
+        toast("Parry perfeito.");
+        return;
+      }
       if (player.invulT > 0 || player.hurtT > 0) return;
-      player.hp -= amount;
+      const armor = getEquippedArmor();
+      const mitigated = Math.max(1, amount - armor.defense);
+      player.hp -= mitigated;
       player.hp = Math.max(0, player.hp);
       player.hurtT = 0.28;
       player.invulT = 0.15;
       // knockback
+      const poiseFactor = 1 - Math.min(0.35, armor.poiseBonus / 40);
       const k = sign(player.x - fromX) || 1;
-      player.vx = 360 * k;
-      player.vy = -260;
+      player.vx = 360 * k * poiseFactor;
+      player.vy = -260 * poiseFactor;
       triggerDamageFlash(120);
       triggerShake(5, 7, 0.12);
   
@@ -1304,6 +1725,25 @@ import {
         toast("Almas recuperadas.");
       }
     }
+
+    function tryPickupItems(){
+      const p = {x: player.x, y: player.y, w: player.w, h: player.h};
+      const checkList = (list, removeOnPickup = false) => {
+        if (!list) return;
+        for (let i = list.length - 1; i >= 0; i--){
+          const drop = list[i];
+          if (!drop.active) continue;
+          const itemBox = { x: drop.x, y: drop.y, w: 22, h: 22 };
+          if (rectsOverlap(p, itemBox)){
+            drop.active = false;
+            grantItem(drop.slot, drop.itemId);
+            if (removeOnPickup) list.splice(i, 1);
+          }
+        }
+      };
+      checkList(currentRoom?.pickups);
+      checkList(currentRoom?.drops, true);
+    }
   
     // ===== Enemy AI =====
     function enemyUpdate(e, dt){
@@ -1393,7 +1833,7 @@ import {
             e.attackCD = Math.max(e.attackCD, e.cooldown * 0.6);
             e.vx *= 0.2;
           } else {
-            playerTakeDamage(e.dmg, e.x);
+            playerTakeDamage(e.dmg, e.x, e);
           }
         }
   
@@ -1523,7 +1963,7 @@ import {
           };
           if (!boss.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
             boss.attackHit = true;
-            playerTakeDamage(boss.phase === 2 ? 38 : 30, boss.x);
+            playerTakeDamage(boss.phase === 2 ? 38 : 30, boss.x, boss);
             triggerShake(6, 8, 0.14);
           }
         } else if (boss.attackType === "slam"){
@@ -1536,7 +1976,7 @@ import {
           };
           if (!boss.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
             boss.attackHit = true;
-            playerTakeDamage(boss.phase === 2 ? 42 : 34, boss.x);
+            playerTakeDamage(boss.phase === 2 ? 42 : 34, boss.x, boss);
             triggerShake(8, 10, 0.18);
           }
         } else if (boss.attackType === "jump"){
@@ -1549,7 +1989,7 @@ import {
               h: 40
             };
             if (rectsOverlap(getPlayerHitbox(), hb)){
-              playerTakeDamage(48, boss.x);
+              playerTakeDamage(48, boss.x, boss);
             }
             triggerShake(10, 12, 0.22);
             boss.wasAirborne = false;
@@ -1575,12 +2015,25 @@ import {
     let last = now();
     let fpsAcc = 0, fpsN = 0, fps = 0;
   
-    function resetAll(){
+    function resetAll(options = {}){
+      if (options.resetInventory){
+        const fresh = defaultInventoryState();
+        inventoryState.equipment = fresh.equipment;
+        inventoryState.owned = fresh.owned;
+        saveInventory();
+      }
       const p = makePlayer();
       Object.assign(player, p);
+      refreshEquipmentStats();
       Object.values(rooms).forEach((room) => {
         initRoom(room);
         resetRoomEnemies(room);
+        if (room.pickups){
+          room.pickups.forEach((pickup) => {
+            pickup.active = !isItemOwned(pickup.slot, pickup.itemId);
+          });
+        }
+        if (room.drops) room.drops.length = 0;
       });
       if (!bossDefeated){
         resetBoss();
@@ -1624,6 +2077,8 @@ import {
       player.attackCD = Math.max(0, player.attackCD - dt);
       player.rollT = Math.max(0, player.rollT - dt);
       player.rollCD = Math.max(0, player.rollCD - dt);
+      player.parryT = Math.max(0, player.parryT - dt);
+      player.parryCD = Math.max(0, player.parryCD - dt);
       player.drinkTimer = Math.max(0, player.drinkTimer - dt);
       deathFade.t = Math.max(0, deathFade.t - dt);
       bossDefeatFlash.t = Math.max(0, bossDefeatFlash.t - dt);
@@ -1644,13 +2099,15 @@ import {
       }
   
       // Stamina regen
-      const regen = (player.rollT > 0 || player.attackCD > 0 || player.hurtT > 0) ? 22 : 38;
+      const relicBonus = inventoryState.equipment.relic === "relic_ember" ? 6 : 0;
+      const regen = (player.rollT > 0 || player.attackCD > 0 || player.hurtT > 0) ? 22 + relicBonus : 38 + relicBonus;
       player.st = clamp(player.st + regen * dt, 0, player.stMax);
   
       // Movement
-      const moveScale = player.isDrinking ? 0.2 : 1;
+      const profile = getRollProfile();
+      const moveScale = (player.isDrinking ? 0.2 : 1) * profile.moveSpeed;
       const accel = (player.onGround ? 1400 : 980) * moveScale;
-      const maxSpeed = (player.rollT > 0 ? 620 : 310) * moveScale;
+      const maxSpeed = player.rollT > 0 ? profile.rollSpeed : 310 * moveScale;
   
       if (player.rollT <= 0 && player.hurtT <= 0){
         if (left) { player.vx -= accel * dt; player.face = -1; }
@@ -1672,6 +2129,7 @@ import {
       if (input.execute) tryExecute();
       if (input.attack || keys.has("j")) startAttack();
       if (input.roll || keys.has("k")) startRoll();
+      if (input.parry) startParry();
       if (input.drink) startDrink();
   
       // Bonfire rest (press E near)
@@ -1683,11 +2141,12 @@ import {
       // Attack hit
       if (player.attackT > 0){
         const ah = getAttackHitbox();
+        const weapon = getEquippedWeapon();
         for (const e of enemies){
           if (e.hp <= 0) continue;
           const eb = {x: e.x, y: e.y, w: e.w, h: e.h};
           if (rectsOverlap(ah, eb)){
-            const result = damageEntity(e, 26, 260 * player.face);
+            const result = damageEntity(e, weapon.damage, 260 * player.face, weapon.poiseDamage);
             if (result.hit){
               triggerHitStop(0.06);
               triggerShake(2, 4, 0.12);
@@ -1699,11 +2158,12 @@ import {
               const gain = getEnemySoulValue(e);
               player.souls += gain;
               toast(`+${gain} souls`);
+              handleEnemyKilled(e);
             }
           }
         }
         if (boss && boss.hp > 0 && rectsOverlap(ah, { x: boss.x, y: boss.y, w: boss.w, h: boss.h })){
-          const result = bossTakeDamage(24, 180 * player.face, 40);
+          const result = bossTakeDamage(weapon.damage, 180 * player.face, weapon.poiseDamage + 10);
           if (result.hit){
             triggerHitStop(0.07);
             triggerShake(3, 5, 0.12);
@@ -1721,6 +2181,7 @@ import {
   
       // Death drop pickup
       tryPickupDeathDrop();
+      tryPickupItems();
 
       if (bossDrop && bossDrop.active && currentRoomId === "boss_arena"){
         const p = {x: player.x, y: player.y, w: player.w, h: player.h};
@@ -1856,6 +2317,35 @@ import {
         ctx.beginPath();
         ctx.arc(d.x + 10 + ox, d.y + 10 + oy + bob, 14, 0, Math.PI*2);
         ctx.stroke();
+      }
+
+      const drawLoot = (drop) => {
+        if (!drop?.active) return;
+        const t = now()/1000;
+        const bob = Math.sin(t * 3 + drop.x * 0.01) * 3;
+        const colors = {
+          weapon: "rgba(240,210,120,.9)",
+          armor: "rgba(140,200,255,.9)",
+          relic: "rgba(210,170,255,.9)",
+          consumable: "rgba(120,220,160,.9)"
+        };
+        const glow = colors[drop.slot] || "rgba(200,200,200,.9)";
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(drop.x + 11 + ox, drop.y + 11 + oy + bob, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = glow.replace(".9", ".35");
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(drop.x + 11 + ox, drop.y + 11 + oy + bob, 14, 0, Math.PI * 2);
+        ctx.stroke();
+      };
+
+      if (currentRoom?.pickups){
+        currentRoom.pickups.forEach((pickup) => drawLoot(pickup));
+      }
+      if (currentRoom?.drops){
+        currentRoom.drops.forEach((drop) => drawLoot(drop));
       }
   
       // Enemies
