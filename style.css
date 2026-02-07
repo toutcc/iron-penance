@@ -84,6 +84,20 @@
     background: #0a0c12;
   }
 
+  .damage-flash{
+    position: fixed;
+    inset: 0;
+    background: rgba(200, 30, 40, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+    z-index: 15;
+  }
+
+  .damage-flash.show{
+    opacity: 1;
+  }
+
   .toast{
     position: fixed;
     left: 50%;

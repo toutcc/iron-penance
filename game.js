@@ -35,6 +35,7 @@ import {
   const toastEl = document.getElementById("toast");
   const hud = document.getElementById("hud");
   const fpsPill = document.getElementById("fpsPill");
+  const damageFlash = document.getElementById("damageFlash");
   const toast = (msg, ms = 1300) => {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -731,8 +732,40 @@ import {
     ];
   
     // ===== Camera =====
-    const cam = {x:0, y:0, shake:0};
+    const cam = {x:0, y:0, shakeTime: 0, shakeMag: 0};
     const deathFade = {t: 0, duration: 0.9};
+    let hitStopTimer = 0;
+    const hitParticles = [];
+
+    const triggerDamageFlash = (ms = 120) => {
+      damageFlash.classList.add("show");
+      clearTimeout(damageFlash._t);
+      damageFlash._t = setTimeout(() => damageFlash.classList.remove("show"), ms);
+    };
+
+    const triggerHitStop = (duration = 0.06) => {
+      hitStopTimer = Math.max(hitStopTimer, duration);
+    };
+
+    const triggerShake = (min, max, duration = 0.12) => {
+      const magnitude = min + Math.random() * (max - min);
+      cam.shakeTime = Math.max(cam.shakeTime, duration);
+      cam.shakeMag = Math.max(cam.shakeMag, magnitude);
+    };
+
+    const spawnHitParticles = (x, y) => {
+      const count = 3 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < count; i++){
+        hitParticles.push({
+          x,
+          y,
+          vx: (Math.random() * 140 + 60) * (Math.random() < 0.5 ? -1 : 1),
+          vy: -Math.random() * 160 - 60,
+          life: 0.12 + Math.random() * 0.08,
+          size: 2 + Math.random() * 3
+        });
+      }
+    };
   
     function centerCamera(){
       const targetX = player.x + player.w/2 - canvas.width/2;
@@ -826,16 +859,16 @@ import {
     }
   
     function damageEntity(ent, amount, knockX){
-      if (ent.invulT > 0 || ent.hp <= 0) return false;
+      if (ent.invulT > 0 || ent.hp <= 0) return { hit: false, killed: false };
       ent.hp -= amount;
       ent.invulT = 0.18;
       ent.hitT = 0.15;
       ent.vx += knockX;
       if (ent.hp <= 0){
         ent.hp = 0;
-        return true;
+        return { hit: true, killed: true };
       }
-      return false;
+      return { hit: true, killed: false };
     }
   
     function playerTakeDamage(amount, fromX){
@@ -848,7 +881,8 @@ import {
       const k = sign(player.x - fromX) || 1;
       player.vx = 360 * k;
       player.vy = -260;
-      cam.shake = 10;
+      triggerDamageFlash(120);
+      triggerShake(5, 7, 0.12);
   
       if (player.hp <= 0){
         dieAndRespawn();
@@ -1041,7 +1075,9 @@ import {
         e.state = "idle";
         e.t = 0; e.hitT = 0; e.invulT = 0;
       }
-      cam.x = 0; cam.shake = 0;
+      cam.x = 0; cam.shakeTime = 0; cam.shakeMag = 0;
+      hitStopTimer = 0;
+      hitParticles.length = 0;
       toast("Reiniciado.");
     }
   
@@ -1066,6 +1102,18 @@ import {
       deathFade.t = Math.max(0, deathFade.t - dt);
       if (player.isDrinking && player.drinkTimer <= 0){
         player.isDrinking = false;
+      }
+
+      for (let i = hitParticles.length - 1; i >= 0; i--){
+        const p = hitParticles[i];
+        p.life -= dt;
+        if (p.life <= 0){
+          hitParticles.splice(i, 1);
+          continue;
+        }
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 520 * dt;
       }
   
       // Stamina regen
@@ -1111,8 +1159,15 @@ import {
           if (e.hp <= 0) continue;
           const eb = {x: e.x, y: e.y, w: e.w, h: e.h};
           if (rectsOverlap(ah, eb)){
-            const killed = damageEntity(e, 26, 260 * player.face);
-            if (killed){
+            const result = damageEntity(e, 26, 260 * player.face);
+            if (result.hit){
+              triggerHitStop(0.06);
+              triggerShake(2, 4, 0.12);
+              const impactX = ah.x + ah.w / 2;
+              const impactY = ah.y + ah.h / 2;
+              spawnHitParticles(impactX, impactY);
+            }
+            if (result.killed){
               const gain = (e.kind === "knight") ? 180 : 90;
               player.souls += gain;
               toast(`+${gain} souls`);
@@ -1135,7 +1190,10 @@ import {
   
       // Camera
       centerCamera();
-      if (cam.shake > 0) cam.shake = Math.max(0, cam.shake - dt * 30);
+      if (cam.shakeTime > 0){
+        cam.shakeTime = Math.max(0, cam.shakeTime - dt);
+        if (cam.shakeTime === 0) cam.shakeMag = 0;
+      }
   
       // Fell off world safety
       const fellOut = player.y > level.h + 200;
@@ -1150,8 +1208,9 @@ import {
       ctx.clearRect(0,0,canvas.width,canvas.height);
   
       // camera shake
-      const shakeX = (cam.shake > 0) ? (Math.random()*2-1) * cam.shake : 0;
-      const shakeY = (cam.shake > 0) ? (Math.random()*2-1) * cam.shake : 0;
+      const shakeMag = cam.shakeTime > 0 ? cam.shakeMag : 0;
+      const shakeX = shakeMag > 0 ? (Math.random()*2-1) * shakeMag : 0;
+      const shakeY = shakeMag > 0 ? (Math.random()*2-1) * shakeMag : 0;
   
       const ox = -Math.floor(cam.x + shakeX);
       const oy = -Math.floor(cam.y + shakeY);
@@ -1248,6 +1307,14 @@ import {
           ctx.fillRect(e.x + ox, e.y - 10 + oy, e.w * ratio, 5);
         }
       }
+
+      // Hit particles
+      if (hitParticles.length){
+        ctx.fillStyle = "rgba(255,210,120,.9)";
+        for (const p of hitParticles){
+          ctx.fillRect(p.x + ox, p.y + oy, p.size, p.size);
+        }
+      }
   
       // Player
       // shadow
@@ -1322,6 +1389,13 @@ import {
       let dt = (t - last) / 1000;
       last = t;
       dt = Math.min(dt, G.dtMax);
+
+      if (hitStopTimer > 0){
+        hitStopTimer = Math.max(0, hitStopTimer - dt);
+        draw();
+        rafId = requestAnimationFrame(frame);
+        return;
+      }
   
       update(dt);
       draw();
