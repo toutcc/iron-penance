@@ -667,6 +667,12 @@ import {
         const cloudData = await loadCloud(user.uid);
         if (cloudData) {
           applySaveData(cloudData);
+        } else {
+          const localData = loadLocalSave();
+          if (localData) {
+            applySaveData(localData);
+            toast("Sem save na nuvem. Usando save local.");
+          }
         }
       } catch (error) {
         console.warn("Falha ao carregar save na nuvem:", error);
