@@ -36,6 +36,8 @@ import {
   const hud = document.getElementById("hud");
   const fpsPill = document.getElementById("fpsPill");
   const damageFlash = document.getElementById("damageFlash");
+  const bossBar = document.getElementById("bossBar");
+  const bossHpFill = document.getElementById("bossHpFill");
   const toast = (msg, ms = 1300) => {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -125,6 +127,7 @@ import {
     menuScreen.classList.add("hidden");
     hud.classList.add("hidden");
     canvas.classList.add("hidden");
+    bossBar.classList.add("hidden");
   };
 
   const showMenu = () => {
@@ -132,6 +135,7 @@ import {
     menuScreen.classList.remove("hidden");
     hud.classList.add("hidden");
     canvas.classList.add("hidden");
+    bossBar.classList.add("hidden");
     updateMenuPanel();
   };
 
@@ -140,6 +144,7 @@ import {
     menuScreen.classList.add("hidden");
     hud.classList.remove("hidden");
     canvas.classList.remove("hidden");
+    updateBossBar();
   };
 
   const setState = (next) => {
@@ -234,6 +239,9 @@ import {
         Object.assign(player, data.player);
         if (data.player.checkpoint?.id) {
           cpText.textContent = data.player.checkpoint.id;
+        }
+        if (data.player.checkpoint?.roomId) {
+          loadRoom(data.player.checkpoint.roomId, { spawn: { x: data.player.checkpoint.x, y: data.player.checkpoint.y } });
         }
       }
       toast("Save carregado.");
@@ -566,6 +574,11 @@ import {
   });
 
   loadSettings();
+
+  const bossDefeatedKey = "bossDefeated";
+  const getBossDefeated = () => localStorage.getItem(bossDefeatedKey) === "true";
+  let bossDefeated = getBossDefeated();
+  let bossRewardClaimed = bossDefeated;
   
     // ===== Utils =====
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -640,39 +653,16 @@ import {
       dtMax: 1/30
     };
   
-    // Simple tile map: rectangles platforms/walls
     const level = {
-      w: 3200,
-      h: 900,
-      solids: [
-        // ground
-        {x:0, y:780 - YSHIFT, w:3200, h:120},
-  
-        // platforms / ledges
-        {x:240, y:640 - YSHIFT, w:420, h:24},
-        {x:820, y:560 - YSHIFT, w:340, h:24},        
-  
-        // small steps
-        {x:680, y:740, w:80, h:40},
-        {x:760, y:720, w:80, h:60},
-        {x:840, y:700, w:80, h:80},
-  
-        // wall-ish pillar
-        {x:1180, y:650, w:40, h:130},
-  
-        // arena block
-        {x:2680, y:640, w:360, h:24},
-        {x:3000, y:520, w:120, h:24},
-      ],
-      bonfires: [
-        {id:"Ruínas", x:180, y:742 - YSHIFT, w:26, h:38},
-        {id:"Ponte", x:1960, y:662 - YSHIFT, w:26, h:38},
-        {id:"Arena", x:2860, y:602 - YSHIFT, w:26, h:38},        
-      ],
+      w: 0,
+      h: 0,
+      solids: [],
+      bonfires: []
     };
   
     // ===== Entities =====
     function makePlayer(){
+      const baseEstusMax = bossDefeated ? 4 : 3;
       return {
         x: 120, y: 740 - YSHIFT,
         w: 26, h: 44,
@@ -682,8 +672,8 @@ import {
         hp: 100, hpMax: 100,
         st: 100, stMax: 100,
         poise: 0,
-        estusMax: 3,
-        estus: 3,
+        estusMax: baseEstusMax,
+        estus: baseEstusMax,
   
         // state timers
         hurtT: 0,
@@ -697,7 +687,7 @@ import {
   
         souls: 0,
         deathDrop: null, // {x,y,amount,active}
-        checkpoint: {id:"Ruínas", x: 140, y: 740 - YSHIFT},
+        checkpoint: {id:"Ruínas", x: 140, y: 740 - YSHIFT, roomId: "ruins_start"},
       };
     }
   
@@ -729,15 +719,276 @@ import {
         ...base
       };
     }
-  
+
+    function makeBoss(x, y){
+      return {
+        x,
+        y,
+        w: 80,
+        h: 110,
+        vx: 0,
+        vy: 0,
+        face: -1,
+        onGround: false,
+        hpMax: 900,
+        hp: 900,
+        phase: 1,
+        state: "idle", // idle, windup, attack, recovery, stagger, dead
+        t: 0,
+        attackType: null,
+        invulT: 0,
+        staggerT: 0,
+        staggerCooldown: 0,
+        poiseMax: 180,
+        poise: 180
+      };
+    }
+
+    const rooms = {
+      ruins_start: {
+        id: "ruins_start",
+        name: "Ruínas",
+        w: 2000,
+        h: 900,
+        bounds: { left: 0, right: 2000 },
+        spawn: { x: 120, y: 740 - YSHIFT },
+        entries: {
+          left: { x: 120, y: 740 - YSHIFT },
+          right: { x: 80, y: 740 - YSHIFT }
+        },
+        solids: [
+          { x: 0, y: 780 - YSHIFT, w: 2000, h: 120 },
+          { x: 240, y: 640 - YSHIFT, w: 420, h: 24 },
+          { x: 820, y: 560 - YSHIFT, w: 340, h: 24 },
+          { x: 680, y: 740, w: 80, h: 40 },
+          { x: 760, y: 720, w: 80, h: 60 },
+          { x: 840, y: 700, w: 80, h: 80 },
+          { x: 1180, y: 650, w: 40, h: 130 },
+        ],
+        bonfires: [
+          { id: "Ruínas", x: 180, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 140, spawnY: 740 - YSHIFT },
+        ],
+        enemies: [
+          makeEnemy(520, 740, "hollow"),
+          makeEnemy(980, 520, "hollow"),
+          makeEnemy(1480, 740, "knight"),
+        ],
+        neighbors: { right: "broken_gallery" }
+      },
+      broken_gallery: {
+        id: "broken_gallery",
+        name: "Galeria Quebrada",
+        w: 2200,
+        h: 900,
+        bounds: { left: 0, right: 2200 },
+        spawn: { x: 120, y: 740 - YSHIFT },
+        entries: {
+          left: { x: 160, y: 740 - YSHIFT },
+          right: { x: 80, y: 700 - YSHIFT }
+        },
+        solids: [
+          { x: 0, y: 780 - YSHIFT, w: 2200, h: 120 },
+          { x: 260, y: 660 - YSHIFT, w: 320, h: 24 },
+          { x: 720, y: 600 - YSHIFT, w: 280, h: 24 },
+          { x: 1100, y: 520 - YSHIFT, w: 260, h: 24 },
+          { x: 1500, y: 660 - YSHIFT, w: 280, h: 24 },
+          { x: 1800, y: 560 - YSHIFT, w: 240, h: 24 },
+        ],
+        bonfires: [
+          { id: "Galeria", x: 1120, y: 622 - YSHIFT, w: 26, h: 38, spawnX: 1080, spawnY: 740 - YSHIFT },
+        ],
+        enemies: [
+          makeEnemy(520, 740, "hollow"),
+          makeEnemy(980, 700 - YSHIFT, "hollow"),
+          makeEnemy(1480, 740, "knight"),
+          makeEnemy(1860, 520 - YSHIFT, "hollow"),
+        ],
+        neighbors: { left: "ruins_start", right: "silent_abyss" }
+      },
+      silent_abyss: {
+        id: "silent_abyss",
+        name: "Abismo Silencioso",
+        w: 2300,
+        h: 900,
+        bounds: { left: 0, right: 2300 },
+        spawn: { x: 140, y: 700 - YSHIFT },
+        entries: {
+          left: { x: 160, y: 700 - YSHIFT },
+          right: { x: 100, y: 620 - YSHIFT }
+        },
+        solids: [
+          { x: 0, y: 780 - YSHIFT, w: 460, h: 120 },
+          { x: 520, y: 620 - YSHIFT, w: 260, h: 24 },
+          { x: 860, y: 540 - YSHIFT, w: 220, h: 24 },
+          { x: 1180, y: 460 - YSHIFT, w: 260, h: 24 },
+          { x: 1540, y: 540 - YSHIFT, w: 220, h: 24 },
+          { x: 1840, y: 620 - YSHIFT, w: 260, h: 24 },
+          { x: 2100, y: 780 - YSHIFT, w: 200, h: 120 },
+        ],
+        bonfires: [
+          { id: "Abismo", x: 210, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 170, spawnY: 740 - YSHIFT },
+        ],
+        enemies: [
+          makeEnemy(540, 580 - YSHIFT, "hollow"),
+          makeEnemy(1500, 500 - YSHIFT, "knight"),
+        ],
+        neighbors: { left: "broken_gallery", right: "antechamber" },
+        voidKill: true,
+        voidY: 720 - YSHIFT + 240
+      },
+      antechamber: {
+        id: "antechamber",
+        name: "Ante-câmara",
+        w: 1600,
+        h: 900,
+        bounds: { left: 0, right: 1600 },
+        spawn: { x: 140, y: 740 - YSHIFT },
+        entries: {
+          left: { x: 160, y: 740 - YSHIFT },
+          right: { x: 120, y: 740 - YSHIFT }
+        },
+        solids: [
+          { x: 0, y: 780 - YSHIFT, w: 1600, h: 120 },
+          { x: 460, y: 640 - YSHIFT, w: 280, h: 24 },
+          { x: 900, y: 640 - YSHIFT, w: 280, h: 24 },
+        ],
+        bonfires: [
+          { id: "Ante-câmara", x: 760, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 720, spawnY: 740 - YSHIFT },
+        ],
+        enemies: [],
+        neighbors: { left: "silent_abyss", right: "boss_arena" },
+        message: "Uma presença opressora aguarda…"
+      },
+      boss_arena: {
+        id: "boss_arena",
+        name: "Arena",
+        w: 2000,
+        h: 900,
+        bounds: { left: 0, right: 2000 },
+        spawn: { x: 140, y: 740 - YSHIFT },
+        entries: {
+          left: { x: 160, y: 740 - YSHIFT },
+          right: { x: 120, y: 740 - YSHIFT }
+        },
+        solids: [
+          { x: 0, y: 780 - YSHIFT, w: 2000, h: 120 },
+          { x: 320, y: 640 - YSHIFT, w: 260, h: 24 },
+          { x: 1420, y: 640 - YSHIFT, w: 260, h: 24 },
+          { x: 900, y: 560 - YSHIFT, w: 200, h: 24 },
+        ],
+        bonfires: [
+          { id: "Arena", x: 960, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 920, spawnY: 740 - YSHIFT, locked: true },
+        ],
+        enemies: [],
+        neighbors: { left: "antechamber" },
+        boss: makeBoss(1200, 670 - YSHIFT)
+      }
+    };
+
     const player = makePlayer();
-    const enemies = [
-      makeEnemy(520, 740, "hollow"),
-      makeEnemy(980, 520, "hollow"),
-      makeEnemy(1700, 740, "knight"),
-      makeEnemy(2460, 680, "hollow"),
-      makeEnemy(2920, 560, "knight"),
-    ];
+    let enemies = [];
+
+    let currentRoomId = "ruins_start";
+    let currentRoom = rooms[currentRoomId];
+    let boss = null;
+    let bossArenaLocked = false;
+    let bossDrop = null;
+    const roomFade = { active: false, phase: "out", t: 0, duration: 0.45, nextRoom: null, entry: null };
+    const bossDefeatFlash = { t: 0, duration: 0.8 };
+
+    const initRoom = (room) => {
+      if (room._init) return;
+      for (const e of room.enemies){
+        e._sx = e.x;
+        e._sy = e.y;
+      }
+      room._init = true;
+    };
+
+    const resetRoomEnemies = (room) => {
+      for (const e of room.enemies){
+        if (e._sx == null) continue;
+        e.x = e._sx; e.y = e._sy;
+        e.vx = 0; e.vy = 0;
+        e.hp = e.hpMax;
+        e.poise = e.poiseMax;
+        e.staggerT = 0;
+        e.state = "idle";
+        e.t = 0; e.hitT = 0; e.invulT = 0;
+      }
+    };
+
+    const resetAllRoomsEnemies = () => {
+      Object.values(rooms).forEach((room) => resetRoomEnemies(room));
+    };
+
+    const resetBoss = () => {
+      const arena = rooms.boss_arena;
+      if (!arena?.boss) return;
+      arena.boss = makeBoss(1200, 670 - YSHIFT);
+      boss = arena.boss;
+      bossDrop = null;
+    };
+
+    const updateBossBar = () => {
+      const show = currentRoom?.id === "boss_arena" && boss && boss.hp > 0 && !bossDefeated;
+      bossBar.classList.toggle("hidden", !show);
+      if (show){
+        bossHpFill.style.width = `${(boss.hp / boss.hpMax) * 100}%`;
+      }
+    };
+
+    const loadRoom = (roomId, options = {}) => {
+      const room = rooms[roomId];
+      if (!room) return;
+      currentRoomId = roomId;
+      currentRoom = room;
+      initRoom(room);
+      level.w = room.w;
+      level.h = room.h;
+      level.solids = room.solids;
+      level.bonfires = room.bonfires;
+      enemies = room.enemies;
+
+      if (room.id === "boss_arena"){
+        boss = room.boss;
+        if (bossDefeated){
+          boss.hp = 0;
+          boss.state = "dead";
+          bossArenaLocked = false;
+          room.bonfires.forEach((b) => { b.locked = false; });
+        } else {
+          bossArenaLocked = true;
+        }
+      } else {
+        boss = null;
+        bossArenaLocked = false;
+      }
+
+      const spawnOverride = options.spawn;
+      const entry = options.entry || "spawn";
+      const target = spawnOverride
+        ? spawnOverride
+        : room.entries?.[entry] || room.spawn;
+      player.x = target.x;
+      player.y = target.y;
+      player.vx = 0;
+      player.vy = 0;
+      updateBossBar();
+    };
+
+    const startRoomTransition = (direction) => {
+      if (roomFade.active) return;
+      const nextRoomId = currentRoom?.neighbors?.[direction];
+      if (!nextRoomId) return;
+      roomFade.active = true;
+      roomFade.phase = "out";
+      roomFade.t = 0;
+      roomFade.nextRoom = nextRoomId;
+      roomFade.entry = direction === "right" ? "left" : "right";
+    };
+
+    loadRoom(currentRoomId);
   
     // ===== Camera =====
     const cam = {x:0, y:0, shakeTime: 0, shakeMag: 0};
@@ -985,30 +1236,20 @@ import {
     function restAtBonfire(){
       const {b, d} = nearestBonfire();
       if (!b || d > 70) { toast("Chegue mais perto da fogueira."); return; }
-      player.checkpoint = {id: b.id, x: b.x - 16, y: 740}; // ground-ish
+      if (b.locked && !bossDefeated){
+        toast("Esta fogueira está selada.");
+        return;
+      }
+      player.checkpoint = {
+        id: b.id,
+        x: b.spawnX ?? b.x - 16,
+        y: b.spawnY ?? 740,
+        roomId: currentRoomId
+      };
       player.hp = player.hpMax;
       player.st = player.stMax;
       player.estus = player.estusMax;
-      // respawn enemies
-      for (const e of enemies){
-        if (e.hp <= 0){
-          // revive at original spawn? keep their initial x/y stored? simplest: reset by kind position map:
-          // We'll just restore and place near original based on kind, but keep current x/y if desired:
-          // Better: store spawn in e._sx/_sy on first frame.
-        }
-      }
-      // hard reset enemies to initial spawns saved in _sx/_sy
-      for (const e of enemies){
-        if (e._sx != null){
-          e.x = e._sx; e.y = e._sy;
-          e.vx = 0; e.vy = 0;
-          e.hp = e.hpMax;
-          e.poise = e.poiseMax;
-          e.staggerT = 0;
-          e.state = "idle";
-          e.t = 0; e.hitT = 0; e.invulT = 0;
-        }
-      }
+      resetAllRoomsEnemies();
   
       toast(`Descansou em ${b.id}.`);
     }
@@ -1021,7 +1262,13 @@ import {
       // drop souls
       const dropAmount = Math.max(0, player.souls);
       if (dropAmount > 0){
-        player.deathDrop = {x: player.x + player.w/2 - 10, y: player.y + player.h - 16, amount: dropAmount, active: true};
+        player.deathDrop = {
+          x: player.x + player.w/2 - 10,
+          y: player.y + player.h - 16,
+          amount: dropAmount,
+          active: true,
+          roomId: currentRoomId
+        };
         player.souls = 0;
       }
       // respawn
@@ -1031,27 +1278,24 @@ import {
       player.st = player.stMax;
       player.estus = player.estusMax;
       player.vx = 0; player.vy = 0;
-      player.x = player.checkpoint.x;
-      player.y = player.checkpoint.y;
+      if (player.checkpoint.roomId && player.checkpoint.roomId !== currentRoomId){
+        loadRoom(player.checkpoint.roomId, { spawn: { x: player.checkpoint.x, y: player.checkpoint.y } });
+      } else {
+        player.x = player.checkpoint.x;
+        player.y = player.checkpoint.y;
+      }
       player.invulT = 0.9; // spawn grace
   
       // reset enemies to spawn
-      for (const e of enemies){
-        if (e._sx != null){
-          e.x = e._sx; e.y = e._sy;
-          e.vx = 0; e.vy = 0;
-          e.hp = e.hpMax;
-          e.poise = e.poiseMax;
-          e.staggerT = 0;
-          e.state = "idle";
-          e.t = 0; e.hitT = 0; e.invulT = 0;
-        }
+      resetAllRoomsEnemies();
+      if (!bossDefeated){
+        resetBoss();
       }
     }
   
     function tryPickupDeathDrop(){
       const d = player.deathDrop;
-      if (!d || !d.active) return;
+      if (!d || !d.active || d.roomId !== currentRoomId) return;
       const p = {x: player.x, y: player.y, w: player.w, h: player.h};
       const orb = {x: d.x, y: d.y, w: 20, h: 20};
       if (rectsOverlap(p, orb)){
@@ -1167,11 +1411,164 @@ import {
   
       moveAndCollide(e, dt);
     }
-  
-    // Store enemy spawn positions once
-    for (const e of enemies){
-      e._sx = e.x;
-      e._sy = e.y;
+
+    function bossTakeDamage(amount, knockX, poiseDamage = amount){
+      if (!boss || boss.invulT > 0 || boss.hp <= 0 || bossDefeated) return { hit: false, killed: false };
+      boss.hp -= amount;
+      boss.invulT = 0.12;
+      boss.vx += knockX * 0.2;
+      boss.poise = Math.max(0, boss.poise - poiseDamage);
+      if (boss.hp <= 0){
+        boss.hp = 0;
+        boss.state = "dead";
+        bossDefeated = true;
+        localStorage.setItem(bossDefeatedKey, "true");
+        bossDefeatFlash.t = bossDefeatFlash.duration;
+        bossArenaLocked = false;
+        currentRoom?.bonfires?.forEach((b) => { b.locked = false; });
+        bossDrop = {
+          x: boss.x + boss.w / 2 - 12,
+          y: boss.y + boss.h - 18,
+          active: true
+        };
+        updateBossBar();
+        toast("O Penitente de Ferro foi derrotado.");
+        return { hit: true, killed: true };
+      }
+      if (boss.poise <= 0 && boss.staggerCooldown <= 0 && boss.state !== "stagger"){
+        boss.state = "stagger";
+        boss.staggerT = 0.6;
+        boss.staggerCooldown = 2.4;
+        boss.poise = boss.poiseMax;
+      }
+      return { hit: true, killed: false };
+    }
+
+    function bossUpdate(dt){
+      if (!boss || bossDefeated) return;
+      if (boss.hp <= 0){
+        boss.state = "dead";
+      }
+      boss.invulT = Math.max(0, boss.invulT - dt);
+      boss.staggerCooldown = Math.max(0, boss.staggerCooldown - dt);
+      boss.staggerT = Math.max(0, boss.staggerT - dt);
+
+      if (boss.hp <= boss.hpMax * 0.5){
+        boss.phase = 2;
+      }
+
+      const px = player.x + player.w / 2;
+      const bx = boss.x + boss.w / 2;
+      const dist = px - bx;
+      boss.face = dist >= 0 ? 1 : -1;
+
+      boss.vy += G.gravity * dt;
+      boss.vx *= boss.onGround ? G.friction : G.airFriction;
+
+      if (boss.state === "dead"){
+        moveAndCollide(boss, dt);
+        return;
+      }
+
+      if (boss.state === "stagger"){
+        boss.vx *= 0.8;
+        moveAndCollide(boss, dt);
+        if (boss.staggerT <= 0){
+          boss.state = "idle";
+        }
+        return;
+      }
+
+      const phaseSpeed = boss.phase === 2 ? 1.15 : 1;
+      if (boss.state === "idle"){
+        if (Math.abs(dist) > 120){
+          boss.vx = lerp(boss.vx, 120 * boss.face, 0.08 * phaseSpeed);
+        } else {
+          boss.vx *= 0.85;
+        }
+
+        if (Math.abs(dist) < 220 && boss.onGround){
+          const roll = Math.random();
+          if (boss.phase === 1){
+            boss.attackType = roll < 0.6 ? "slash" : "slam";
+          } else {
+            boss.attackType = roll < 0.5 ? "slash" : (roll < 0.8 ? "slam" : "jump");
+          }
+          boss.state = "windup";
+          boss.t = boss.attackType === "slam" ? 0.4 / phaseSpeed : 0.3 / phaseSpeed;
+          boss.vx *= 0.4;
+          boss.attackHit = false;
+          boss.wasAirborne = false;
+        }
+      } else if (boss.state === "windup"){
+        boss.vx *= 0.8;
+        boss.t = Math.max(0, boss.t - dt);
+        if (boss.t <= 0){
+          boss.state = "attack";
+          boss.t = boss.attackType === "jump" ? 0.9 : 0.25;
+          if (boss.attackType === "jump"){
+            boss.vy = -760;
+            boss.vx = boss.face * 220;
+            boss.wasAirborne = true;
+          }
+        }
+      } else if (boss.state === "attack"){
+        if (boss.attackType === "slash"){
+          boss.vx = lerp(boss.vx, boss.face * 260, 0.18 * phaseSpeed);
+          const hb = {
+            x: boss.x + (boss.face === 1 ? boss.w - 10 : -50),
+            y: boss.y + 24,
+            w: 60,
+            h: 42
+          };
+          if (!boss.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
+            boss.attackHit = true;
+            playerTakeDamage(boss.phase === 2 ? 38 : 30, boss.x);
+            triggerShake(6, 8, 0.14);
+          }
+        } else if (boss.attackType === "slam"){
+          boss.vx *= 0.6;
+          const hb = {
+            x: boss.x - 40,
+            y: boss.y + boss.h - 20,
+            w: boss.w + 80,
+            h: 32
+          };
+          if (!boss.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
+            boss.attackHit = true;
+            playerTakeDamage(boss.phase === 2 ? 42 : 34, boss.x);
+            triggerShake(8, 10, 0.18);
+          }
+        } else if (boss.attackType === "jump"){
+          if (boss.wasAirborne && boss.onGround && !boss.attackHit){
+            boss.attackHit = true;
+            const hb = {
+              x: boss.x - 120,
+              y: boss.y + boss.h - 28,
+              w: boss.w + 240,
+              h: 40
+            };
+            if (rectsOverlap(getPlayerHitbox(), hb)){
+              playerTakeDamage(48, boss.x);
+            }
+            triggerShake(10, 12, 0.22);
+            boss.wasAirborne = false;
+          }
+        }
+        boss.t = Math.max(0, boss.t - dt);
+        if (boss.t <= 0){
+          boss.state = "recovery";
+          boss.t = boss.phase === 2 ? 0.5 : 0.7;
+        }
+      } else if (boss.state === "recovery"){
+        boss.vx *= 0.85;
+        boss.t = Math.max(0, boss.t - dt);
+        if (boss.t <= 0){
+          boss.state = "idle";
+        }
+      }
+
+      moveAndCollide(boss, dt);
     }
   
     // ===== Update Loop =====
@@ -1181,16 +1578,15 @@ import {
     function resetAll(){
       const p = makePlayer();
       Object.assign(player, p);
-      // reset enemies
-      for (const e of enemies){
-        e.x = e._sx; e.y = e._sy;
-        e.vx = 0; e.vy = 0;
-        e.hp = e.hpMax;
-        e.poise = e.poiseMax;
-        e.staggerT = 0;
-        e.state = "idle";
-        e.t = 0; e.hitT = 0; e.invulT = 0;
+      Object.values(rooms).forEach((room) => {
+        initRoom(room);
+        resetRoomEnemies(room);
+      });
+      if (!bossDefeated){
+        resetBoss();
       }
+      currentRoomId = "ruins_start";
+      loadRoom(currentRoomId, { spawn: { ...rooms.ruins_start.spawn } });
       cam.x = 0; cam.shakeTime = 0; cam.shakeMag = 0;
       hitStopTimer = 0;
       hitParticles.length = 0;
@@ -1198,6 +1594,20 @@ import {
     }
   
     function update(dt){
+      if (roomFade.active){
+        roomFade.t += dt;
+        const progress = roomFade.t / roomFade.duration;
+        if (roomFade.phase === "out" && progress >= 1){
+          loadRoom(roomFade.nextRoom, { entry: roomFade.entry });
+          roomFade.phase = "in";
+          roomFade.t = 0;
+        } else if (roomFade.phase === "in" && progress >= 1){
+          roomFade.active = false;
+        }
+        consumeActions();
+        return;
+      }
+
       // Actions
       const left = keys.has("a") || keys.has("arrowleft");
       const right = keys.has("d") || keys.has("arrowright");
@@ -1216,6 +1626,7 @@ import {
       player.rollCD = Math.max(0, player.rollCD - dt);
       player.drinkTimer = Math.max(0, player.drinkTimer - dt);
       deathFade.t = Math.max(0, deathFade.t - dt);
+      bossDefeatFlash.t = Math.max(0, bossDefeatFlash.t - dt);
       if (player.isDrinking && player.drinkTimer <= 0){
         player.isDrinking = false;
       }
@@ -1291,16 +1702,54 @@ import {
             }
           }
         }
+        if (boss && boss.hp > 0 && rectsOverlap(ah, { x: boss.x, y: boss.y, w: boss.w, h: boss.h })){
+          const result = bossTakeDamage(24, 180 * player.face, 40);
+          if (result.hit){
+            triggerHitStop(0.07);
+            triggerShake(3, 5, 0.12);
+            const impactX = ah.x + ah.w / 2;
+            const impactY = ah.y + ah.h / 2;
+            spawnHitParticles(impactX, impactY, { color: "rgba(255,200,160,.9)" });
+          }
+        }
       }
   
       // Update enemies
       for (const e of enemies) enemyUpdate(e, dt);
+
+      bossUpdate(dt);
   
       // Death drop pickup
       tryPickupDeathDrop();
+
+      if (bossDrop && bossDrop.active && currentRoomId === "boss_arena"){
+        const p = {x: player.x, y: player.y, w: player.w, h: player.h};
+        const orb = {x: bossDrop.x, y: bossDrop.y, w: 24, h: 24};
+        if (rectsOverlap(p, orb)){
+          bossDrop.active = false;
+          if (!bossRewardClaimed){
+            player.estusMax += 1;
+            player.estus = player.estusMax;
+            bossRewardClaimed = true;
+            toast("Coração de Ferro obtido. Estus máximo +1.");
+          } else {
+            toast("Coração de Ferro obtido.");
+          }
+        }
+      }
   
       // Update checkpoint label
       cpText.textContent = player.checkpoint.id;
+
+      if (!bossArenaLocked){
+        if (player.x + player.w >= currentRoom.bounds.right - 2){
+          startRoomTransition("right");
+        } else if (player.x <= currentRoom.bounds.left + 2){
+          startRoomTransition("left");
+        }
+      } else {
+        player.x = clamp(player.x, currentRoom.bounds.left + 4, currentRoom.bounds.right - player.w - 4);
+      }
   
       // Clear one-shot input
       consumeActions();
@@ -1313,7 +1762,9 @@ import {
       }
   
       // Fell off world safety
-      const fellOut = player.y > level.h + 200;
+      const fellOut = currentRoom.voidKill
+        ? player.y > currentRoom.voidY
+        : player.y > level.h + 200;
       const leftVoid = player.x < -200;
       const rightVoid = player.x > level.w + 200;
       if (fellOut || leftVoid || rightVoid) dieAndRespawn();
@@ -1357,9 +1808,20 @@ import {
         ctx.fillStyle = "rgba(255,255,255,.06)";
         ctx.fillRect(s.x + ox, s.y + oy, s.w, 3);
       }
+
+      if (currentRoomId === "boss_arena" && bossArenaLocked){
+        ctx.fillStyle = "#2a1f1a";
+        ctx.fillRect(0 + ox, 560 - YSHIFT + oy, 40, 220);
+        ctx.fillRect(level.w - 40 + ox, 560 - YSHIFT + oy, 40, 220);
+        ctx.fillStyle = "rgba(255,200,160,.18)";
+        ctx.fillRect(0 + ox, 560 - YSHIFT + oy, 6, 220);
+        ctx.fillRect(level.w - 6 + ox, 560 - YSHIFT + oy, 6, 220);
+      }
   
       // Bonfires
       for (const b of level.bonfires){
+        const locked = b.locked && !bossDefeated;
+        ctx.globalAlpha = locked ? 0.35 : 1;
         // flame
         ctx.fillStyle = "rgba(255,170,80,.9)";
         ctx.beginPath();
@@ -1376,10 +1838,11 @@ import {
         ctx.beginPath();
         ctx.arc(b.x + b.w/2 + ox, b.y + 28 + oy, 20, 0, Math.PI*2);
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
   
       // Death drop orb
-      if (player.deathDrop && player.deathDrop.active){
+      if (player.deathDrop && player.deathDrop.active && player.deathDrop.roomId === currentRoomId){
         const d = player.deathDrop;
         const t = now()/1000;
         const bob = Math.sin(t*4)*3;
@@ -1436,6 +1899,44 @@ import {
         }
       }
 
+      if (boss && boss.hp > 0 && !bossDefeated){
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.ellipse(boss.x + boss.w/2 + ox, boss.y + boss.h + oy, 30, 10, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        let bossColor = boss.phase === 2 ? "#b25b5b" : "#8c8f9e";
+        if (boss.state === "windup"){
+          const pulse = 0.5 + Math.sin(now()/1000 * 10) * 0.3;
+          bossColor = `rgba(255,150,120,${pulse})`;
+        }
+        if (boss.state === "stagger"){
+          bossColor = "#d6c6c0";
+        }
+        ctx.fillStyle = bossColor;
+        ctx.fillRect(boss.x + ox, boss.y + oy, boss.w, boss.h);
+
+        ctx.fillStyle = "#0a0c12";
+        const eyeX = boss.face === 1 ? (boss.x + boss.w - 16) : (boss.x + 8);
+        ctx.fillRect(eyeX + ox, boss.y + 26 + oy, 6, 6);
+      }
+
+      if (bossDrop && bossDrop.active && currentRoomId === "boss_arena"){
+        const t = now()/1000;
+        const bob = Math.sin(t*3) * 3;
+        ctx.fillStyle = "rgba(240,220,160,.9)";
+        ctx.beginPath();
+        ctx.arc(bossDrop.x + 12 + ox, bossDrop.y + 12 + oy + bob, 8, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(240,220,160,.4)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(bossDrop.x + 12 + ox, bossDrop.y + 12 + oy + bob, 16, 0, Math.PI*2);
+        ctx.stroke();
+      }
+
       // Hit particles
       if (hitParticles.length){
         for (const p of hitParticles){
@@ -1478,7 +1979,16 @@ import {
       if (nb.b && nb.d < 80){
         ctx.fillStyle = "rgba(255,255,255,.85)";
         ctx.font = "14px ui-sans-serif, system-ui, Arial";
-        ctx.fillText("Pressione E para descansar", nb.b.x - 40 + ox, nb.b.y - 10 + oy);
+        const hint = nb.b.locked && !bossDefeated ? "Fogueira selada" : "Pressione E para descansar";
+        ctx.fillText(hint, nb.b.x - 40 + ox, nb.b.y - 10 + oy);
+      }
+
+      if (currentRoom?.message){
+        ctx.fillStyle = "rgba(230,230,255,.9)";
+        ctx.font = "20px 'Times New Roman', serif";
+        ctx.textAlign = "center";
+        ctx.fillText(currentRoom.message, canvas.width / 2, 80);
+        ctx.textAlign = "start";
       }
   
       // ground info
@@ -1492,11 +2002,28 @@ import {
       stText.textContent = `${Math.floor(player.st)}/${player.stMax}`;
       soulsText.textContent = `${player.souls}`;
       estusText.textContent = `${player.estus}/${player.estusMax}`;
+      if (boss && !bossDefeated && currentRoomId === "boss_arena"){
+        bossHpFill.style.width = `${(boss.hp / boss.hpMax) * 100}%`;
+      }
 
       if (deathFade.t > 0){
         const progress = 1 - (deathFade.t / deathFade.duration);
         const alpha = progress < 0.5 ? (progress / 0.5) : ((1 - progress) / 0.5);
         ctx.fillStyle = `rgba(0,0,0,${Math.min(1, Math.max(0, alpha))})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      if (bossDefeatFlash.t > 0){
+        const progress = 1 - (bossDefeatFlash.t / bossDefeatFlash.duration);
+        const alpha = progress < 0.4 ? (progress / 0.4) : ((1 - progress) / 0.6);
+        ctx.fillStyle = `rgba(255,245,230,${Math.min(0.8, Math.max(0, alpha))})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      if (roomFade.active){
+        const progress = Math.min(1, roomFade.t / roomFade.duration);
+        const alpha = roomFade.phase === "out" ? progress : (1 - progress);
+        ctx.fillStyle = `rgba(0,0,0,${alpha})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
     }
