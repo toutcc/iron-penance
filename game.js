@@ -32,6 +32,8 @@ import {
   const cpText = document.getElementById("cpText");
   const fpsText = document.getElementById("fpsText");
   const toastEl = document.getElementById("toast");
+  const hud = document.getElementById("hud");
+  const fpsPill = document.getElementById("fpsPill");
   const toast = (msg, ms = 1300) => {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -54,10 +56,30 @@ import {
   const btnEmailLogin = document.getElementById("emailLoginBtn");
   const btnEmailCreate = document.getElementById("emailRegisterBtn");
   const btnEmailReset = document.getElementById("resetPasswordBtn");
+  const menuScreen = document.getElementById("menuScreen");
+  const menuParticles = document.getElementById("menuParticles");
+  const menuList = document.getElementById("menuList");
+  const menuItems = Array.from(document.querySelectorAll(".menu-item"));
+  const optionsPanel = document.getElementById("optionsPanel");
+  const extrasPanel = document.getElementById("extrasPanel");
+  const optionsBack = document.getElementById("optionsBack");
+  const extrasBack = document.getElementById("extrasBack");
+  const volumeRange = document.getElementById("volumeRange");
+  const volumeValue = document.getElementById("volumeValue");
+  const fpsToggle = document.getElementById("fpsToggle");
+  const fpsLimitRange = document.getElementById("fpsLimitRange");
+  const fpsLimitValue = document.getElementById("fpsLimitValue");
+  const menuUser = document.getElementById("menuUser");
 
   const provider = new GoogleAuthProvider();
   let state = "login";
   let rafId = null;
+  let menuRafId = null;
+  let menuIndex = 0;
+  let fpsLimit = 60;
+  let showFps = true;
+  let volume = 70;
+  let lastFrameTime = 0;
 
   const setStatus = (message) => {
     authStatus.textContent = message;
@@ -87,23 +109,237 @@ import {
     }
     keys.clear();
     consumeActions();
-    loginScreen.classList.remove("hidden");
   };
 
   const startGame = () => {
     if (rafId !== null) return;
-    loginScreen.classList.add("hidden");
     last = now();
+    lastFrameTime = last;
     rafId = requestAnimationFrame(frame);
+  };
+
+  const showLogin = () => {
+    loginScreen.classList.remove("hidden");
+    menuScreen.classList.add("hidden");
+    hud.classList.add("hidden");
+    canvas.classList.add("hidden");
+  };
+
+  const showMenu = () => {
+    loginScreen.classList.add("hidden");
+    menuScreen.classList.remove("hidden");
+    hud.classList.add("hidden");
+    canvas.classList.add("hidden");
+    updateMenuPanel();
+  };
+
+  const showGame = () => {
+    loginScreen.classList.add("hidden");
+    menuScreen.classList.add("hidden");
+    hud.classList.remove("hidden");
+    canvas.classList.remove("hidden");
   };
 
   const setState = (next) => {
     if (state === next) return;
     state = next;
     if (state === "game") {
+      showGame();
+      stopMenuLoop();
       startGame();
     } else {
       stopGame();
+      if (state === "login") {
+        showLogin();
+        stopMenuLoop();
+      } else {
+        showMenu();
+        startMenuLoop();
+      }
+    }
+  };
+
+  const updateFpsVisibility = () => {
+    fpsPill.classList.toggle("hidden", !showFps);
+  };
+
+  const loadSettings = () => {
+    const storedVolume = Number(localStorage.getItem("ironpenance_volume"));
+    const storedShowFps = localStorage.getItem("ironpenance_show_fps");
+    const storedFpsLimit = Number(localStorage.getItem("ironpenance_fps_limit"));
+    if (!Number.isNaN(storedVolume)) volume = storedVolume;
+    if (storedShowFps !== null) showFps = storedShowFps === "true";
+    if (!Number.isNaN(storedFpsLimit) && storedFpsLimit > 0) fpsLimit = storedFpsLimit;
+    volumeRange.value = String(volume);
+    volumeValue.textContent = `${volume}%`;
+    fpsToggle.checked = showFps;
+    fpsLimitRange.value = String(fpsLimit);
+    fpsLimitValue.textContent = `${fpsLimit}`;
+    updateFpsVisibility();
+  };
+
+  const saveSettings = () => {
+    localStorage.setItem("ironpenance_volume", String(volume));
+    localStorage.setItem("ironpenance_show_fps", String(showFps));
+    localStorage.setItem("ironpenance_fps_limit", String(fpsLimit));
+  };
+
+  const hasSave = () => Boolean(localStorage.getItem("ironpenance_save") || localStorage.getItem("save"));
+
+  const updateContinueAvailability = () => {
+    const continueItem = menuItems.find((item) => item.dataset.action === "continue");
+    const available = hasSave();
+    if (!continueItem) return;
+    continueItem.classList.toggle("is-disabled", !available);
+    continueItem.disabled = !available;
+    if (!available && menuIndex === menuItems.indexOf(continueItem)) {
+      menuIndex = 0;
+    }
+  };
+
+  const renderMenu = () => {
+    updateContinueAvailability();
+    menuItems.forEach((item, index) => {
+      item.classList.toggle("is-selected", index === menuIndex);
+    });
+  };
+
+  const updateMenuInput = (direction) => {
+    const enabledItems = menuItems.filter((item) => !item.disabled);
+    if (!enabledItems.length) return;
+    const currentItem = menuItems[menuIndex];
+    const currentEnabledIndex = Math.max(0, enabledItems.indexOf(currentItem));
+    let nextEnabledIndex = currentEnabledIndex + direction;
+    if (nextEnabledIndex < 0) nextEnabledIndex = enabledItems.length - 1;
+    if (nextEnabledIndex >= enabledItems.length) nextEnabledIndex = 0;
+    menuIndex = menuItems.indexOf(enabledItems[nextEnabledIndex]);
+    renderMenu();
+    playMenuMove();
+  };
+
+  const playMenuMove = () => {};
+  const playMenuConfirm = () => {};
+
+  const loadGame = () => {
+    const raw = localStorage.getItem("ironpenance_save") || localStorage.getItem("save");
+    if (!raw) {
+      toast("Nenhum save encontrado.");
+      return;
+    }
+    try {
+      const data = JSON.parse(raw);
+      if (data?.player) {
+        Object.assign(player, data.player);
+        if (data.player.checkpoint?.id) {
+          cpText.textContent = data.player.checkpoint.id;
+        }
+      }
+      toast("Save carregado.");
+    } catch (error) {
+      console.warn("Falha ao carregar save:", error);
+      toast("Save corrompido.");
+    }
+  };
+
+  const handleMenuAction = async (action) => {
+    if (action === "start") {
+      resetAll();
+      setState("game");
+      playMenuConfirm();
+      return;
+    }
+    if (action === "continue") {
+      if (!hasSave()) return;
+      loadGame();
+      setState("game");
+      playMenuConfirm();
+      return;
+    }
+    if (action === "options") {
+      setState("options");
+      playMenuConfirm();
+      return;
+    }
+    if (action === "extras") {
+      setState("extras");
+      playMenuConfirm();
+      return;
+    }
+    if (action === "logout") {
+      playMenuConfirm();
+      try {
+        await signOut(auth);
+      } catch (error) {
+        console.warn("Falha ao sair:", error);
+        toast("Não foi possível sair agora.");
+      }
+    }
+  };
+
+  const updateMenuPanel = () => {
+    const showOptions = state === "options";
+    const showExtras = state === "extras";
+    menuList.classList.toggle("hidden", showOptions || showExtras);
+    optionsPanel.classList.toggle("hidden", !showOptions);
+    extrasPanel.classList.toggle("hidden", !showExtras);
+    optionsPanel.setAttribute("aria-hidden", String(!showOptions));
+    extrasPanel.setAttribute("aria-hidden", String(!showExtras));
+    renderMenu();
+  };
+
+  const menuCtx = menuParticles.getContext("2d");
+  const menuParticlesState = Array.from({ length: 42 }, () => ({
+    x: Math.random(),
+    y: Math.random(),
+    r: 0.6 + Math.random() * 1.8,
+    a: 0.15 + Math.random() * 0.35,
+    speed: 0.02 + Math.random() * 0.06
+  }));
+
+  const resizeMenuCanvas = () => {
+    const rect = menuParticles.getBoundingClientRect();
+    menuParticles.width = rect.width;
+    menuParticles.height = rect.height;
+  };
+
+  const renderFogParticles = () => {
+    const w = menuParticles.width;
+    const h = menuParticles.height;
+    if (!w || !h) return;
+    menuCtx.clearRect(0, 0, w, h);
+    for (const p of menuParticlesState) {
+      p.y += p.speed;
+      if (p.y > 1.1) {
+        p.y = -0.1;
+        p.x = Math.random();
+      }
+      const x = p.x * w;
+      const y = p.y * h;
+      menuCtx.fillStyle = `rgba(200,205,220,${p.a})`;
+      menuCtx.beginPath();
+      menuCtx.arc(x, y, p.r, 0, Math.PI * 2);
+      menuCtx.fill();
+    }
+  };
+
+  const menuLoop = () => {
+    menuRafId = null;
+    if (state === "menu" || state === "options" || state === "extras") {
+      renderFogParticles();
+      menuRafId = requestAnimationFrame(menuLoop);
+    }
+  };
+
+  const startMenuLoop = () => {
+    if (menuRafId !== null) return;
+    resizeMenuCanvas();
+    menuLoop();
+  };
+
+  const stopMenuLoop = () => {
+    if (menuRafId !== null) {
+      cancelAnimationFrame(menuRafId);
+      menuRafId = null;
     }
   };
 
@@ -265,12 +501,48 @@ import {
   });
 
   btnContinue.addEventListener("click", () => {
-    setState("game");
+    setState("menu");
+  });
+
+  menuItems.forEach((item, index) => {
+    item.addEventListener("mouseenter", () => {
+      if (item.disabled) return;
+      menuIndex = index;
+      renderMenu();
+    });
+    item.addEventListener("click", () => {
+      if (item.disabled) return;
+      menuIndex = index;
+      renderMenu();
+      handleMenuAction(item.dataset.action);
+    });
+  });
+
+  optionsBack.addEventListener("click", () => setState("menu"));
+  extrasBack.addEventListener("click", () => setState("menu"));
+
+  volumeRange.addEventListener("input", (event) => {
+    volume = Number(event.target.value);
+    volumeValue.textContent = `${volume}%`;
+    saveSettings();
+  });
+
+  fpsToggle.addEventListener("change", (event) => {
+    showFps = event.target.checked;
+    updateFpsVisibility();
+    saveSettings();
+  });
+
+  fpsLimitRange.addEventListener("input", (event) => {
+    fpsLimit = Number(event.target.value);
+    fpsLimitValue.textContent = `${fpsLimit}`;
+    saveSettings();
   });
 
   onAuthStateChanged(auth, (user) => {
     if (user) {
       setLoginUi(user);
+      menuUser.textContent = `Conectado: ${user.displayName || user.email || "Jogador"}`;
       localStorage.setItem(
         "user",
         JSON.stringify({
@@ -278,12 +550,20 @@ import {
           name: user.displayName || user.email || "Jogador"
         })
       );
+      setState("menu");
     } else {
       setLoginUi(null);
+      menuUser.textContent = "Conectado: —";
       localStorage.removeItem("user");
       setState("login");
     }
   });
+
+  window.addEventListener("resize", () => {
+    resizeMenuCanvas();
+  });
+
+  loadSettings();
   
     // ===== Utils =====
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -298,9 +578,25 @@ import {
     // ===== Input =====
     const keys = new Set();
     window.addEventListener("keydown", (e) => {
-      if (state !== "game") return;
-      keys.add(e.key.toLowerCase());
-      if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(e.key.toLowerCase())) e.preventDefault();
+      const key = e.key.toLowerCase();
+      if (state === "game") {
+        keys.add(key);
+        if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
+        return;
+      }
+      if (state === "menu" || state === "options" || state === "extras") {
+        if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
+        if (state === "menu") {
+          if (key === "arrowup") updateMenuInput(-1);
+          if (key === "arrowdown") updateMenuInput(1);
+          if (key === "enter") {
+            const current = menuItems[menuIndex];
+            if (current && !current.disabled) handleMenuAction(current.dataset.action);
+          }
+        } else if (key === "escape") {
+          setState("menu");
+        }
+      }
     });
     window.addEventListener("keyup", (e) => {
       if (state !== "game") return;
@@ -970,6 +1266,12 @@ import {
         return;
       }
       const t = now();
+      const minFrame = 1000 / Math.max(1, fpsLimit);
+      if (t - lastFrameTime < minFrame) {
+        rafId = requestAnimationFrame(frame);
+        return;
+      }
+      lastFrameTime = t;
       let dt = (t - last) / 1000;
       last = t;
       dt = Math.min(dt, G.dtMax);
@@ -992,6 +1294,7 @@ import {
     // ===== Start =====
     toast("Bem-vindo. Cuidado com a stamina.");
     cpText.textContent = player.checkpoint.id;
+    showLogin();
     stopGame();
 })();
   

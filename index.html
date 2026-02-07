@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Soulslike 2D (3 arquivos)</title>
+  <title>IRON PENANCE</title>
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="hud">
+  <div class="hud" id="hud">
     <div class="bar">
       <div class="label">HP</div>
       <div class="track"><div id="hpFill" class="fill"></div></div>
@@ -24,7 +24,7 @@
     <div class="row">
       <div class="pill">Souls: <span id="soulsText">0</span></div>
       <div class="pill">Checkpoint: <span id="cpText">—</span></div>
-      <div class="pill">FPS: <span id="fpsText">0</span></div>
+      <div class="pill" id="fpsPill">FPS: <span id="fpsText">0</span></div>
     </div>
 
     <div class="help">
@@ -34,6 +34,73 @@
   </div>
 
   <canvas id="game" width="960" height="540" aria-label="Soulslike 2D"></canvas>
+
+  <div class="menu-screen hidden" id="menuScreen" aria-live="polite">
+    <div class="menu-fog"></div>
+    <canvas class="menu-particles" id="menuParticles" width="960" height="540" aria-hidden="true"></canvas>
+    <div class="menu-content">
+      <header class="menu-header">
+        <p class="menu-kicker">Prepare-se para a penitência</p>
+        <h1 class="menu-logo">IRON PENANCE</h1>
+        <p class="menu-subtitle">PREPARE-SE PARA A PENITÊNCIA</p>
+      </header>
+
+      <nav class="menu-list" id="menuList">
+        <button class="menu-item" data-action="start">INICIAR O JOGO</button>
+        <button class="menu-item" data-action="continue">CONTINUAR</button>
+        <button class="menu-item" data-action="options">OPÇÕES</button>
+        <button class="menu-item" data-action="extras">EXTRAS</button>
+        <button class="menu-item" data-action="logout">SAIR</button>
+      </nav>
+
+      <section class="menu-panel hidden" id="optionsPanel" aria-hidden="true">
+        <h2>OPÇÕES</h2>
+        <div class="menu-field">
+          <label for="volumeRange">Volume</label>
+          <div class="menu-field-row">
+            <input type="range" id="volumeRange" min="0" max="100" step="1" />
+            <span id="volumeValue">0</span>
+          </div>
+        </div>
+        <div class="menu-field">
+          <label for="fpsToggle">Mostrar FPS</label>
+          <label class="toggle">
+            <input type="checkbox" id="fpsToggle" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="menu-field">
+          <label for="fpsLimitRange">Limitar FPS</label>
+          <div class="menu-field-row">
+            <input type="range" id="fpsLimitRange" min="30" max="120" step="1" />
+            <span id="fpsLimitValue">60</span>
+          </div>
+        </div>
+        <button class="menu-back" id="optionsBack">Voltar</button>
+      </section>
+
+      <section class="menu-panel hidden" id="extrasPanel" aria-hidden="true">
+        <h2>EXTRAS</h2>
+        <div class="menu-text">
+          <h3>Créditos</h3>
+          <p>IRON PENANCE é uma jornada criada para honrar a perseverança nas ruínas.</p>
+        </div>
+        <div class="menu-text">
+          <h3>Roadmap</h3>
+          <ul>
+            <li>Novos biomas e inimigos.</li>
+            <li>Chefes com fases adicionais.</li>
+            <li>Modo desafio e conquistas.</li>
+          </ul>
+        </div>
+        <button class="menu-back" id="extrasBack">Voltar</button>
+      </section>
+    </div>
+    <div class="menu-footer">
+      <span class="menu-version">v0.1.0</span>
+      <span class="menu-user" id="menuUser">Conectado: —</span>
+    </div>
+  </div>
 
   <div class="toast" id="toast"></div>
 
