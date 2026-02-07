@@ -4,7 +4,13 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   onAuthStateChanged,
-  signOut
+  signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
+  setPersistence,
+  browserLocalPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
 
@@ -26,17 +32,29 @@ import {
   const cpText = document.getElementById("cpText");
   const fpsText = document.getElementById("fpsText");
   const toastEl = document.getElementById("toast");
+  const toast = (msg, ms = 1300) => {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(() => toastEl.classList.remove("show"), ms);
+  };
 
   // ===== Login UI =====
   const loginScreen = document.getElementById("loginScreen");
   const loginActions = document.getElementById("loginActions");
   const loginUser = document.getElementById("loginUser");
   const loginStatus = document.getElementById("loginStatus");
+  const emailStatus = document.getElementById("emailStatus");
   const userName = document.getElementById("userName");
   const userEmail = document.getElementById("userEmail");
   const btnLogin = document.getElementById("btnLogin");
   const btnLogout = document.getElementById("btnLogout");
   const btnContinue = document.getElementById("btnContinue");
+  const inputEmail = document.getElementById("inputEmail");
+  const inputPassword = document.getElementById("inputPassword");
+  const btnEmailLogin = document.getElementById("btnEmailLogin");
+  const btnEmailCreate = document.getElementById("btnEmailCreate");
+  const btnEmailReset = document.getElementById("btnEmailReset");
 
   const provider = new GoogleAuthProvider();
   let state = "login";
@@ -44,6 +62,10 @@ import {
 
   const setStatus = (message) => {
     loginStatus.textContent = message;
+  };
+
+  const setEmailStatus = (message) => {
+    emailStatus.textContent = message;
   };
 
   const setLoginUi = (user) => {
@@ -60,6 +82,7 @@ import {
       loginActions.classList.remove("is-hidden");
       loginUser.classList.remove("is-visible");
       setStatus("Aguardando autenticação.");
+      setEmailStatus("Digite seu email para recuperar a senha.");
     }
   };
 
@@ -90,16 +113,129 @@ import {
     }
   };
 
+  const mapAuthError = (error) => {
+    const code = error?.code || "";
+    const messages = {
+      "auth/invalid-email": "Email inválido. Verifique o formato.",
+      "auth/user-not-found": "Usuário não encontrado. Crie uma conta.",
+      "auth/wrong-password": "Senha incorreta. Tente novamente.",
+      "auth/email-already-in-use": "Este email já está em uso.",
+      "auth/weak-password": "Senha fraca. Use ao menos 6 caracteres.",
+      "auth/popup-closed-by-user": "Login cancelado antes de concluir.",
+      "auth/unauthorized-domain": "Domínio não autorizado no Firebase. Adicione este domínio em Authentication > Settings."
+    };
+    return messages[code] || "Não foi possível autenticar agora.";
+  };
+
+  const getEmailAndPassword = () => ({
+    email: inputEmail.value.trim(),
+    password: inputPassword.value
+  });
+
+  const validateEmail = (email) => {
+    if (!email) {
+      toast("Informe seu email.");
+      setEmailStatus("Preencha o email para continuar.");
+      return false;
+    }
+    return true;
+  };
+
+  const validatePassword = (password) => {
+    if (password.length < 6) {
+      toast("A senha precisa ter ao menos 6 caracteres.");
+      setEmailStatus("Use uma senha com no mínimo 6 caracteres.");
+      return false;
+    }
+    return true;
+  };
+
+  const setAuthButtonsDisabled = (disabled) => {
+    btnLogin.disabled = disabled;
+    btnEmailLogin.disabled = disabled;
+    btnEmailCreate.disabled = disabled;
+    btnEmailReset.disabled = disabled;
+  };
+
+  setPersistence(auth, browserLocalPersistence).catch((error) => {
+    console.error("Falha ao definir persistência:", error);
+    toast("Não foi possível manter o login neste navegador.");
+  });
+
   btnLogin.addEventListener("click", async () => {
     setStatus("Conectando...");
-    btnLogin.disabled = true;
+    setAuthButtonsDisabled(true);
     try {
       await signInWithPopup(auth, provider);
+      setStatus("Login realizado. Pronto para continuar.");
     } catch (error) {
       console.error("Falha no login:", error);
-      setStatus("Falha no login. Tente novamente.");
+      const message = mapAuthError(error);
+      setStatus(message);
+      toast(message);
     } finally {
-      btnLogin.disabled = false;
+      setAuthButtonsDisabled(false);
+    }
+  });
+
+  btnEmailLogin.addEventListener("click", async () => {
+    const { email, password } = getEmailAndPassword();
+    if (!validateEmail(email) || !validatePassword(password)) return;
+    setEmailStatus("Entrando com email e senha...");
+    setAuthButtonsDisabled(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      setEmailStatus("Login realizado. Você pode continuar.");
+      toast("Login realizado.");
+    } catch (error) {
+      console.error("Falha no login por email:", error);
+      const message = mapAuthError(error);
+      setEmailStatus(message);
+      toast(message);
+    } finally {
+      setAuthButtonsDisabled(false);
+    }
+  });
+
+  btnEmailCreate.addEventListener("click", async () => {
+    const { email, password } = getEmailAndPassword();
+    if (!validateEmail(email) || !validatePassword(password)) return;
+    setEmailStatus("Criando conta...");
+    setAuthButtonsDisabled(true);
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      const displayName = window.prompt("Como deseja ser chamado? (opcional)")?.trim();
+      if (displayName) {
+        await updateProfile(credential.user, { displayName });
+      }
+      setEmailStatus("Conta criada. Você já pode continuar.");
+      toast("Conta criada com sucesso.");
+    } catch (error) {
+      console.error("Falha ao criar conta:", error);
+      const message = mapAuthError(error);
+      setEmailStatus(message);
+      toast(message);
+    } finally {
+      setAuthButtonsDisabled(false);
+    }
+  });
+
+  btnEmailReset.addEventListener("click", async () => {
+    const { email } = getEmailAndPassword();
+    if (!validateEmail(email)) return;
+    setEmailStatus("Enviando email de recuperação...");
+    setAuthButtonsDisabled(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setEmailStatus("Email de recuperação enviado.");
+      toast("Confira sua caixa de entrada para redefinir a senha.");
+    } catch (error) {
+      console.error("Falha ao enviar recuperação:", error);
+      const message = mapAuthError(error);
+      setEmailStatus(message);
+      toast(message);
+    } finally {
+      setAuthButtonsDisabled(false);
     }
   });
 
@@ -133,14 +269,6 @@ import {
       setState("login");
     }
   });
-    
-  
-    const toast = (msg, ms = 1300) => {
-      toastEl.textContent = msg;
-      toastEl.classList.add("show");
-      clearTimeout(toastEl._t);
-      toastEl._t = setTimeout(() => toastEl.classList.remove("show"), ms);
-    };
   
     // ===== Utils =====
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
