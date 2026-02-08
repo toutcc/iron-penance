@@ -9,30 +9,22 @@
 </head>
 <body>
   <div class="hud" id="hud">
-    <div class="bar">
-      <div class="label">HP</div>
-      <div class="track"><div id="hpFill" class="fill"></div></div>
-      <div id="hpText" class="text"></div>
+    <div id="hkHud" aria-live="polite">
+      <div class="row hpRow" id="hpMasks"></div>
+      <div class="row stamina" id="staminaRow" aria-hidden="true">
+        <div class="staminaTrack"><div id="staminaFill" class="staminaFill"></div></div>
+      </div>
+      <div class="row currency">
+        <div class="cur souls"><span class="icon"></span><span id="soulsVal">0</span></div>
+        <div class="cur gold"><span class="icon"></span><span id="goldVal">0</span></div>
+      </div>
     </div>
-
-    <div class="bar">
-      <div class="label">ST</div>
-      <div class="track"><div id="stFill" class="fill"></div></div>
-      <div id="stText" class="text"></div>
-    </div>
-
-    <div class="row">
-      <div class="pill">Souls: <span id="soulsText">0</span></div>
-      <div class="pill">Gold: <span id="goldText">0</span></div>
-      <div class="pill">Estus: <span id="estusText">0/0</span></div>
-      <div class="pill">Checkpoint: <span id="cpText">—</span></div>
-      <div class="pill">Zona: <span id="zoneText">—</span></div>
-      <div class="pill" id="fpsPill">FPS: <span id="fpsText">0</span></div>
-    </div>
-
-    <div class="help">
-      <b>Controles</b>:
-      A/D ou ←/→ mover • W/↑/Espaço pular • J atacar • K rolar • L aparar • SHIFT dash • CTRL sprint • Q beber Estus • TAB inventário • E interagir/coletar • R reiniciar
+    <div class="hud-debug hidden">
+      <span id="estusText">0/0</span>
+      <span id="cpText">—</span>
+      <span id="zoneText">—</span>
+      <span id="fpsText">0</span>
+      <span id="fpsPill"></span>
     </div>
   </div>
 
