@@ -5130,36 +5130,6 @@ import {
       if (fellOut || leftVoid || rightVoid) dieAndRespawn();
     }
   
-    const drawFogOverlay = (ctx) => {
-      ctx.save();
-      ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
-      const bufferW = BASE_W;
-      const bufferH = BASE_H;
-      const baseFog = ctx.createLinearGradient(0, 0, 0, bufferH);
-      baseFog.addColorStop(0, "rgba(8,10,16,0.22)");
-      baseFog.addColorStop(1, "rgba(5,6,10,0.45)");
-      ctx.fillStyle = baseFog;
-      ctx.fillRect(0, 0, bufferW, bufferH);
-
-      const cx = bufferW / 2;
-      const cy = bufferH / 2;
-      const maxRadius = Math.max(bufferW, bufferH) * 0.7;
-      const vignette = ctx.createRadialGradient(cx, cy, maxRadius * 0.2, cx, cy, maxRadius);
-      vignette.addColorStop(0, "rgba(0,0,0,0)");
-      vignette.addColorStop(0.55, "rgba(0,0,0,0.25)");
-      vignette.addColorStop(1, "rgba(0,0,0,0.75)");
-      ctx.fillStyle = vignette;
-      ctx.fillRect(0, 0, bufferW, bufferH);
-
-      const edgeFog = ctx.createRadialGradient(cx, cy, maxRadius * 0.15, cx, cy, maxRadius);
-      edgeFog.addColorStop(0, "rgba(0,0,0,0)");
-      edgeFog.addColorStop(0.65, "rgba(12,14,20,0.14)");
-      edgeFog.addColorStop(1, "rgba(12,14,20,0.3)");
-      ctx.fillStyle = edgeFog;
-      ctx.fillRect(0, 0, bufferW, bufferH);
-      ctx.restore();
-    };
-
     // ===== Render =====
     function draw(){
       // background
@@ -5428,7 +5398,6 @@ import {
       // HUD update handled in renderHUD()
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      drawFogOverlay(ctx);
 
       if (deathFade.t > 0){
         const progress = 1 - (deathFade.t / deathFade.duration);
