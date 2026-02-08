@@ -133,6 +133,7 @@ import {
   let suppressAutoSave = false;
   let clearConfirmSlotId = null;
   const slotCache = new Map();
+  let visitedZones = new Set();
 
   const setStatus = (message) => {
     authStatus.textContent = message;
@@ -238,6 +239,7 @@ import {
     updatePauseOptionsPanel();
     keys.clear();
     consumeActions();
+    input.sprint = false;
   };
 
   const hidePause = () => {
@@ -389,6 +391,7 @@ import {
     souls: player.souls,
     lastBonfireId: player.checkpoint?.id || null,
     abilities: { ...player.abilities },
+    visitedZones: [...visitedZones],
     flags: {
       bossDefeated,
       doorFlags: { ...doorFlags },
@@ -511,6 +514,9 @@ import {
         wallJump: Boolean(data.abilities.wallJump),
         pogo: Boolean(data.abilities.pogo)
       };
+    }
+    if (Array.isArray(data.visitedZones)) {
+      visitedZones = new Set(data.visitedZones);
     }
     if (data.flags) {
       bossDefeated = Boolean(data.flags.bossDefeated);
@@ -1493,6 +1499,7 @@ import {
         if (key === "i" && !e.repeat) input.execute = true;
         if (key === "l" && !e.repeat) input.parry = true;
         if (key === "shift" && !e.repeat) input.dash = true;
+        if (key === "control") input.sprint = true;
         if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
         return;
       }
@@ -1579,7 +1586,9 @@ import {
     });
     window.addEventListener("keyup", (e) => {
       if (state !== "game") return;
-      keys.delete(e.key.toLowerCase());
+      const key = e.key.toLowerCase();
+      keys.delete(key);
+      if (key === "control") input.sprint = false;
     });
   
     // Mouse: left attack, right roll
@@ -1601,6 +1610,7 @@ import {
       parry:false,
       interact:false,
       dash:false,
+      sprint:false,
     };
 
     function consumeActions(){
@@ -1621,12 +1631,15 @@ import {
       dtMax: 1/30
     };
 
-    const PLAYER_MOVE = {
-      accelGround: 2000,
-      accelAir: 1400,
-      maxSpeed: 310,
-      frictionGround: 0.78,
-      frictionAir: 0.92,
+  const PLAYER_MOVE = {
+    accelGround: 2000,
+    accelAir: 1400,
+    maxSpeed: 310,
+    sprintMultiplier: 1.35,
+    sprintStaminaCost: 12,
+    sprintMinStamina: 12,
+    frictionGround: 0.78,
+    frictionAir: 0.92,
       jumpSpeed: 620,
       wallSlideSpeed: 200,
       wallJumpSpeed: 600,
@@ -1689,6 +1702,7 @@ import {
         jumpBufferTimer: 0,
         jumpHoldTimer: 0,
         jumpHeldPrev: false,
+        isSprinting: false,
         wallJumpUnlocked: false,
         abilities: {
           dash: false,
@@ -1785,6 +1799,13 @@ import {
       { id: "boss", name: "Santuário do Penitente", rect: { x: ZONE_X.boss, y: 0, w: ZONE_W.boss, h: WORLD.h } }
     ];
 
+    const fogVolumes = [
+      { id: "fog_gallery_ruins", x: ZONE_X.ruins - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
+      { id: "fog_ruins_abyss", x: ZONE_X.abyss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
+      { id: "fog_abyss_antechamber", x: ZONE_X.antechamber - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
+      { id: "fog_antechamber_boss", x: ZONE_X.boss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" }
+    ];
+
     const offsetList = (list, dx, dy = 0) => list.map((item) => ({ ...item, x: item.x + dx, y: item.y + dy }));
     const offsetEnemies = (list, dx, dy = 0) => list.map((enemy) => {
       enemy.x += dx;
@@ -1874,8 +1895,8 @@ import {
           { x: 1900, y: 700 - YSHIFT, w: 260, h: 20 }
         ], ZONE_X.ruins),
         gates: [
-          // Gate de dash: só atravessa quando o dash está ativo.
-          makeGate({ id: "dash_gate", type: "dash", x: ZONE_X.abyss - 40, y: 700 - YSHIFT, w: 40, h: 80 })
+          // Gate de sprint: atravessa correndo ou com dash.
+          makeGate({ id: "sprint_gate", type: "sprint", x: ZONE_X.abyss - 52, y: 700 - YSHIFT, w: 52, h: 80 })
         ]
       },
       // ABISMO: poço profundo + seção vertical com wall jump.
@@ -1905,10 +1926,12 @@ import {
         solids: offsetList([
           { x: 1540, y: 540 - YSHIFT, w: 220, h: 24 },
           { x: 1840, y: 620 - YSHIFT, w: 260, h: 24 },
-          { x: 2100, y: 780 - YSHIFT, w: 200, h: 120 },
-          // Parede alta: exige WALL JUMP.
-          { x: 1980, y: 360 - YSHIFT, w: 40, h: 320 }
+          { x: 2100, y: 780 - YSHIFT, w: 200, h: 120 }
         ], ZONE_X.abyss),
+        gates: [
+          // Parede alta: exige WALL JUMP.
+          makeGate({ id: "wall_gate", type: "wall", x: ZONE_X.abyss + 1980, y: 380 - YSHIFT, w: 40, h: 280 })
+        ],
         enemies: offsetEnemies([
           makeEnemy(1500, 500 - YSHIFT, "knight")
         ], ZONE_X.abyss),
@@ -1939,6 +1962,10 @@ import {
         solids: offsetList([
           { x: 900, y: 640 - YSHIFT, w: 280, h: 24 }
         ], ZONE_X.antechamber),
+        gates: [
+          // Espinhos: só atravessa com POGO.
+          makeGate({ id: "pogo_gate", type: "pogo", x: ZONE_X.antechamber + 1020, y: 740 - YSHIFT, w: 240, h: 60 })
+        ],
         spikes: offsetList([
           // Espinhos: só atravessa com POGO.
           { x: 1020, y: 760 - YSHIFT, w: 240, h: 20 }
@@ -2182,6 +2209,9 @@ import {
 
     let currentZoneId = "ruins";
     let currentZone = zones.find((zone) => zone.id === currentZoneId) || zones[0];
+    if (!visitedZones.size) {
+      visitedZones = new Set([currentZoneId]);
+    }
     let boss = chunks.find((chunk) => chunk.boss)?.boss || null;
     let bossArenaLocked = false;
     const bossDefeatFlash = { t: 0, duration: 0.8 };
@@ -2281,6 +2311,9 @@ import {
         zoneText.textContent = zone.name;
         toast(`Zona: ${zone.name}`);
       }
+      if (zone && !visitedZones.has(zone.id)) {
+        visitedZones.add(zone.id);
+      }
       if (!zoneText.textContent && currentZone) {
         zoneText.textContent = currentZone.name;
       }
@@ -2318,6 +2351,7 @@ import {
     const cam = {x:0, y:0, shakeTime: 0, shakeMag: 0};
     const deathFade = {t: 0, duration: 0.9};
     let hitStopTimer = 0;
+    let gateToastCooldown = 0;
     const hitParticles = [];
 
     const triggerDamageFlash = (ms = 120) => {
@@ -2367,6 +2401,15 @@ import {
         sizeMax: 6,
       });
     };
+
+    const intersectRect = (a, b) => {
+      const x = Math.max(a.x, b.x);
+      const y = Math.max(a.y, b.y);
+      const w = Math.min(a.x + a.w, b.x + b.w) - x;
+      const h = Math.min(a.y + a.h, b.y + b.h) - y;
+      if (w <= 0 || h <= 0) return null;
+      return { x, y, w, h };
+    };
   
     function centerCamera(){
       const targetX = player.x + player.w/2 - canvas.width/2;
@@ -2376,11 +2419,25 @@ import {
     }
   
     // ===== Physics / Collision =====
+    const canPassGate = (solid, ent) => {
+      if (ent !== player) return false;
+      if (solid.type === "dash") {
+        return player.abilities.dash && player.dashT > 0;
+      }
+      if (solid.type === "sprint") {
+        return player.isSprinting || player.dashT > 0;
+      }
+      if (solid.type === "pogo") {
+        return player.abilities.pogo && player.attackType === "plunge" && player.vy > 0;
+      }
+      return false;
+    };
+
     const shouldCollideWithSolid = (solid, ent) => {
       if (!solid.gate) return true;
-      if (solid.type === "dash"){
+      if (solid.type === "dash" || solid.type === "sprint" || solid.type === "pogo"){
         if (ent !== player) return true;
-        return !(player.abilities.dash && player.dashT > 0);
+        return !canPassGate(solid, ent);
       }
       if (solid.type === "door"){
         return !doorFlags[solid.id];
@@ -2397,6 +2454,16 @@ import {
       let hitX = false;
       for (const s of level.solids){
         if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
+          if (ent === player && s.gate && gateToastCooldown <= 0){
+            const needsSprint = s.type === "sprint" && !canPassGate(s, ent);
+            const needsDash = s.type === "dash" && !player.abilities.dash;
+            const needsWall = s.type === "wall" && !player.abilities.wallJump;
+            const needsPogo = s.type === "pogo" && !player.abilities.pogo;
+            if (needsSprint || needsDash || needsWall || needsPogo){
+              toast("Uma técnica te falta…");
+              gateToastCooldown = 1.2;
+            }
+          }
           if (ent.vx > 0) ent.x = s.x - ent.w;
           else if (ent.vx < 0) ent.x = s.x + s.w;
           ent.vx = 0;
@@ -2409,6 +2476,16 @@ import {
       ent.onGround = false;
       for (const s of level.solids){
         if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
+          if (ent === player && s.gate && gateToastCooldown <= 0){
+            const needsSprint = s.type === "sprint" && !canPassGate(s, ent);
+            const needsDash = s.type === "dash" && !player.abilities.dash;
+            const needsWall = s.type === "wall" && !player.abilities.wallJump;
+            const needsPogo = s.type === "pogo" && !player.abilities.pogo;
+            if (needsSprint || needsDash || needsWall || needsPogo){
+              toast("Uma técnica te falta…");
+              gateToastCooldown = 1.2;
+            }
+          }
           if (ent.vy > 0){
             ent.y = s.y - ent.h;
             ent.vy = 0;
@@ -3126,6 +3203,7 @@ import {
       player.checkpoint = { id: "Ruínas", x: player.x, y: player.y, zoneId: "ruins" };
       currentZoneId = "ruins";
       currentZone = zones.find((zone) => zone.id === currentZoneId) || zones[0];
+      visitedZones = new Set([currentZoneId]);
       zoneText.textContent = currentZone.name;
       cam.x = 0; cam.shakeTime = 0; cam.shakeMag = 0;
       hitStopTimer = 0;
@@ -3162,6 +3240,7 @@ import {
       player.drinkTimer = Math.max(0, player.drinkTimer - dt);
       deathFade.t = Math.max(0, deathFade.t - dt);
       bossDefeatFlash.t = Math.max(0, bossDefeatFlash.t - dt);
+      gateToastCooldown = Math.max(0, gateToastCooldown - dt);
       if (player.isDrinking && player.drinkTimer <= 0){
         player.isDrinking = false;
       }
@@ -3196,8 +3275,23 @@ import {
       // Movement
       const profile = getRollProfile();
       const moveScale = (player.isDrinking ? 0.2 : 1) * profile.moveSpeed;
-      const accel = (player.onGround ? PLAYER_MOVE.accelGround : PLAYER_MOVE.accelAir) * moveScale;
-      const maxSpeed = player.rollT > 0 ? profile.rollSpeed : PLAYER_MOVE.maxSpeed * moveScale;
+      const sprintHeld = input.sprint;
+      const sprintEligible = sprintHeld
+        && (left || right)
+        && player.onGround
+        && player.rollT <= 0
+        && player.hurtT <= 0
+        && player.dashT <= 0
+        && !player.isDrinking;
+      let sprinting = sprintEligible && player.st > PLAYER_MOVE.sprintMinStamina;
+      if (sprinting) {
+        player.st = clamp(player.st - PLAYER_MOVE.sprintStaminaCost * dt, 0, player.stMax);
+        if (player.st < PLAYER_MOVE.sprintMinStamina) sprinting = false;
+      }
+      player.isSprinting = sprinting;
+      const sprintBoost = sprinting ? PLAYER_MOVE.sprintMultiplier : 1;
+      const accel = (player.onGround ? PLAYER_MOVE.accelGround : PLAYER_MOVE.accelAir) * moveScale * sprintBoost;
+      const maxSpeed = player.rollT > 0 ? profile.rollSpeed : PLAYER_MOVE.maxSpeed * moveScale * sprintBoost;
       const jumpPressed = jumpHeld && !player.jumpHeldPrev;
       const jumpReleased = !jumpHeld && player.jumpHeldPrev;
       const canJump = player.rollT <= 0 && player.hurtT <= 0 && player.dashT <= 0;
@@ -3467,7 +3561,11 @@ import {
         const isDoorOpen = gate.type === "door" && doorFlags[gate.id];
         if (gate.type === "door" && isDoorOpen) continue;
         if (gate.type === "boss" && !bossArenaLocked) continue;
-        ctx.fillStyle = gate.type === "dash" ? "rgba(120,170,255,.6)" : "rgba(80,60,50,.7)";
+        if (gate.type === "sprint") ctx.fillStyle = "rgba(120,170,255,.55)";
+        else if (gate.type === "wall") ctx.fillStyle = "rgba(150,120,90,.75)";
+        else if (gate.type === "pogo") ctx.fillStyle = "rgba(180,110,200,.6)";
+        else if (gate.type === "dash") ctx.fillStyle = "rgba(120,170,255,.6)";
+        else ctx.fillStyle = "rgba(80,60,50,.7)";
         ctx.fillRect(gate.x + ox, gate.y + oy, gate.w, gate.h);
       }
 
@@ -3655,6 +3753,49 @@ import {
         const hint = nb.b.locked && !bossDefeated ? "Fogueira selada" : "Pressione E para descansar";
         ctx.fillText(hint, nb.b.x - 40 + ox, nb.b.y - 10 + oy);
       }
+
+      const viewRect = { x: cam.x, y: cam.y, w: canvas.width, h: canvas.height };
+      for (const zone of zones){
+        if (visitedZones.has(zone.id)) continue;
+        const intersection = intersectRect(viewRect, zone.rect);
+        if (!intersection) continue;
+        ctx.fillStyle = "rgba(8,10,16,0.55)";
+        ctx.fillRect(intersection.x - cam.x, intersection.y - cam.y, intersection.w, intersection.h);
+      }
+
+      for (const volume of fogVolumes){
+        const intersection = intersectRect(viewRect, volume);
+        if (!intersection) continue;
+        const startX = intersection.x - cam.x;
+        const endX = startX + intersection.w;
+        const grad = ctx.createLinearGradient(startX, 0, endX, 0);
+        if (volume.direction === "right"){
+          grad.addColorStop(0, "rgba(0,0,0,0)");
+          grad.addColorStop(1, "rgba(8,10,16,0.75)");
+        } else {
+          grad.addColorStop(0, "rgba(8,10,16,0.75)");
+          grad.addColorStop(1, "rgba(0,0,0,0)");
+        }
+        ctx.fillStyle = grad;
+        ctx.fillRect(intersection.x - cam.x, intersection.y - cam.y, intersection.w, intersection.h);
+      }
+
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const maxRadius = Math.max(cx, cy);
+      const vignette = ctx.createRadialGradient(cx, cy, maxRadius * 0.2, cx, cy, maxRadius);
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(0.6, "rgba(0,0,0,0.28)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.78)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const edgeFog = ctx.createRadialGradient(cx, cy, maxRadius * 0.1, cx, cy, maxRadius);
+      edgeFog.addColorStop(0, "rgba(0,0,0,0)");
+      edgeFog.addColorStop(0.7, "rgba(12,14,20,0.18)");
+      edgeFog.addColorStop(1, "rgba(12,14,20,0.32)");
+      ctx.fillStyle = edgeFog;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // ground info
       ctx.fillStyle = "rgba(255,255,255,.06)";
