@@ -23,6 +23,7 @@
 
     <div class="row">
       <div class="pill">Souls: <span id="soulsText">0</span></div>
+      <div class="pill">Gold: <span id="goldText">0</span></div>
       <div class="pill">Estus: <span id="estusText">0/0</span></div>
       <div class="pill">Checkpoint: <span id="cpText">—</span></div>
       <div class="pill">Zona: <span id="zoneText">—</span></div>
@@ -73,6 +74,20 @@
         <div class="inventory-details" id="inventoryDetails"></div>
       </div>
       <div class="inventory-hint">↑ ↓ navegar • Enter equipar • Clique para detalhes • Esc sair</div>
+    </div>
+  </div>
+
+  <div class="quest-overlay hidden" id="questOverlay" aria-hidden="true">
+    <div class="quest-panel" role="dialog" aria-labelledby="questTitle">
+      <header class="quest-header">
+        <p class="quest-kicker">Missões</p>
+        <h2 id="questTitle">A Santa da Ruína</h2>
+      </header>
+      <div class="quest-body">
+        <div class="quest-list" id="questList" role="listbox" aria-label="Lista de missões"></div>
+        <div class="quest-details" id="questDetails"></div>
+      </div>
+      <div class="quest-hint" id="questHint">↑ ↓ navegar • Enter selecionar • Esc voltar</div>
     </div>
   </div>
 
