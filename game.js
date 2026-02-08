@@ -14,7 +14,10 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   doc,
+  collection,
   getDoc,
+  getDocs,
+  deleteDoc,
   setDoc,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
@@ -88,17 +91,29 @@ import {
   const fpsLimitRange = document.getElementById("fpsLimitRange");
   const fpsLimitValue = document.getElementById("fpsLimitValue");
   const menuUser = document.getElementById("menuUser");
+  const profilesScreen = document.getElementById("profilesScreen");
+  const profilesSlots = Array.from(document.querySelectorAll(".profiles-slot"));
+  const profilesBack = document.getElementById("profilesBack");
+  const clearSaveBtn = document.getElementById("clearSaveBtn");
+  const clearConfirm = document.getElementById("clearConfirm");
 
   const provider = new GoogleAuthProvider();
   let state = "login";
   let rafId = null;
   let menuRafId = null;
   let menuIndex = 0;
+  let profilesIndex = 0;
   let inventoryIndex = 0;
   let fpsLimit = 60;
   let showFps = true;
   let volume = 70;
   let lastFrameTime = 0;
+  let activeSlotId = null;
+  let playtimeSeconds = 0;
+  let autosaveTimer = 0;
+  let suppressAutoSave = false;
+  let clearConfirmSlotId = null;
+  const slotCache = new Map();
 
   const setStatus = (message) => {
     authStatus.textContent = message;
@@ -140,6 +155,7 @@ import {
   const showLogin = () => {
     loginScreen.classList.remove("hidden");
     menuScreen.classList.add("hidden");
+    profilesScreen.classList.add("hidden");
     hud.classList.add("hidden");
     canvas.classList.add("hidden");
     bossBar.classList.add("hidden");
@@ -148,15 +164,28 @@ import {
   const showMenu = () => {
     loginScreen.classList.add("hidden");
     menuScreen.classList.remove("hidden");
+    profilesScreen.classList.add("hidden");
     hud.classList.add("hidden");
     canvas.classList.add("hidden");
     bossBar.classList.add("hidden");
     updateMenuPanel();
   };
 
+  const showProfiles = () => {
+    loginScreen.classList.add("hidden");
+    menuScreen.classList.add("hidden");
+    profilesScreen.classList.remove("hidden");
+    hud.classList.add("hidden");
+    canvas.classList.add("hidden");
+    bossBar.classList.add("hidden");
+    clearConfirmSlotId = null;
+    clearConfirm.classList.add("hidden");
+  };
+
   const showGame = () => {
     loginScreen.classList.add("hidden");
     menuScreen.classList.add("hidden");
+    profilesScreen.classList.add("hidden");
     hud.classList.remove("hidden");
     canvas.classList.remove("hidden");
     updateBossBar();
@@ -195,6 +224,11 @@ import {
       stopMenuLoop();
       stopGame();
       showInventory();
+    } else if (state === "profiles") {
+      hideInventory();
+      stopGame();
+      stopMenuLoop();
+      showProfiles();
     } else {
       hideInventory();
       stopGame();
@@ -233,33 +267,41 @@ import {
     localStorage.setItem("ironpenance_fps_limit", String(fpsLimit));
   };
 
-  const LOCAL_SAVE_KEY = "ironpenance_save_local";
-  const hasSave = () => Boolean(
-    localStorage.getItem(LOCAL_SAVE_KEY)
-    || localStorage.getItem("ironpenance_save")
-    || localStorage.getItem("save")
-  );
+  const SLOT_IDS = ["1", "2", "3", "4"];
+  const SAVE_VERSION = 1;
+  const LEGACY_SAVE_KEYS = ["ironpenance_save_local", "ironpenance_save", "save"];
+  const getSlotKey = (slotId) => `ironpenance_slot_${slotId}`;
 
-  const buildSaveData = () => ({
-    player: {
-      checkpoint: player.checkpoint ? { ...player.checkpoint } : null,
-      souls: player.souls,
-      hp: player.hp,
-      x: player.x,
-      y: player.y
-    }
-  });
-
-  const saveLocal = (data) => {
-    const payload = JSON.stringify(data);
-    localStorage.setItem(LOCAL_SAVE_KEY, payload);
-    localStorage.setItem("ironpenance_save", payload);
+  const hasAnySlotSave = () => {
+    const hasSlots = SLOT_IDS.some((slotId) => localStorage.getItem(getSlotKey(slotId)));
+    if (hasSlots) return true;
+    return LEGACY_SAVE_KEYS.some((key) => localStorage.getItem(key));
   };
 
-  const loadLocalSave = () => {
-    const raw = localStorage.getItem(LOCAL_SAVE_KEY)
-      || localStorage.getItem("ironpenance_save")
-      || localStorage.getItem("save");
+  const buildSaveData = () => ({
+    version: SAVE_VERSION,
+    checkpoint: player.checkpoint ? { ...player.checkpoint } : null,
+    roomId: currentRoomId,
+    player: {
+      hp: player.hp,
+      hpMax: player.hpMax,
+      estus: player.estus,
+      estusMax: player.estusMax,
+      x: player.x,
+      y: player.y
+    },
+    souls: player.souls,
+    flags: {
+      bossDefeated,
+      doorsOpened: [],
+      pickupsCollected: [...collectedPickups],
+      miniBossesDefeated: [...defeatedMiniBosses]
+    },
+    playtimeSeconds,
+    updatedAt: new Date().toISOString()
+  });
+
+  const parseLocalData = (raw) => {
     if (!raw) return null;
     try {
       return JSON.parse(raw);
@@ -269,45 +311,131 @@ import {
     }
   };
 
-  const applySaveData = (data) => {
-    if (!data?.player) return false;
-    const saved = data.player;
-    if (Number.isFinite(saved.souls)) player.souls = saved.souls;
-    if (Number.isFinite(saved.hp)) player.hp = saved.hp;
-    if (Number.isFinite(saved.x)) player.x = saved.x;
-    if (Number.isFinite(saved.y)) player.y = saved.y;
-    if (saved.checkpoint) {
-      player.checkpoint = { ...player.checkpoint, ...saved.checkpoint };
-      if (player.checkpoint?.id) {
-        cpText.textContent = player.checkpoint.id;
-      }
-      if (player.checkpoint?.roomId) {
-        const spawnX = Number.isFinite(player.checkpoint.x) ? player.checkpoint.x : player.x;
-        const spawnY = Number.isFinite(player.checkpoint.y) ? player.checkpoint.y : player.y;
-        loadRoom(player.checkpoint.roomId, { spawn: { x: spawnX, y: spawnY } });
-      }
+  const loadLegacySave = () => {
+    for (const key of LEGACY_SAVE_KEYS) {
+      const data = parseLocalData(localStorage.getItem(key));
+      if (data) return data;
     }
-    refreshEquipmentStats();
-    return true;
+    return null;
   };
 
-  const saveCloud = async (uid, data) => {
-    if (!uid) return false;
-    const payload = { ...data, updatedAt: serverTimestamp() };
-    await setDoc(doc(db, "saves", uid), payload, { merge: true });
-    return true;
+  const normalizeSlotData = (data) => {
+    if (!data) return null;
+    const updatedAt = data.updatedAt;
+    let parsedUpdatedAt = null;
+    if (updatedAt?.toDate) {
+      parsedUpdatedAt = updatedAt.toDate();
+    } else if (typeof updatedAt === "string" || typeof updatedAt === "number") {
+      const date = new Date(updatedAt);
+      parsedUpdatedAt = Number.isNaN(date.getTime()) ? null : date;
+    }
+    return {
+      ...data,
+      updatedAt: parsedUpdatedAt
+    };
   };
 
-  const loadCloud = async (uid) => {
+  const saveSlotLocal = (slotId, data) => {
+    const payload = JSON.stringify(data);
+    localStorage.setItem(getSlotKey(slotId), payload);
+  };
+
+  const loadSlotLocal = (slotId) => {
+    const raw = localStorage.getItem(getSlotKey(slotId));
+    if (raw) return parseLocalData(raw);
+    if (slotId === "1") return loadLegacySave();
+    return null;
+  };
+
+  const deleteSlotLocal = (slotId) => {
+    localStorage.removeItem(getSlotKey(slotId));
+    if (slotId === "1") {
+      LEGACY_SAVE_KEYS.forEach((key) => localStorage.removeItem(key));
+    }
+  };
+
+  const loadSlot = async (uid, slotId) => {
     if (!uid) return null;
-    const snapshot = await getDoc(doc(db, "saves", uid));
+    const snapshot = await getDoc(doc(db, "saves", uid, "slots", slotId));
     if (!snapshot.exists()) return null;
     return snapshot.data();
   };
 
+  const saveSlot = async (uid, slotId, data) => {
+    if (!uid) return false;
+    const payload = { ...data, updatedAt: serverTimestamp() };
+    await setDoc(doc(db, "saves", uid, "slots", slotId), payload, { merge: true });
+    return true;
+  };
+
+  const deleteSlot = async (uid, slotId) => {
+    if (!uid) return false;
+    await deleteDoc(doc(db, "saves", uid, "slots", slotId));
+    return true;
+  };
+
+  const formatPlaytime = (seconds = 0) => {
+    const total = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  };
+
+  const formatUpdatedAt = (date) => {
+    if (!date) return "—";
+    return date.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit"
+    });
+  };
+
+  const applySaveData = (data) => {
+    if (!data) return false;
+    const savedPlayer = data.player || {};
+    const savedCheckpoint = data.checkpoint || savedPlayer.checkpoint;
+    const savedSouls = Number.isFinite(data.souls) ? data.souls : savedPlayer.souls;
+    if (Number.isFinite(savedPlayer.hp)) player.hp = savedPlayer.hp;
+    if (Number.isFinite(savedPlayer.hpMax)) player.hpMax = savedPlayer.hpMax;
+    if (Number.isFinite(savedPlayer.estus)) player.estus = savedPlayer.estus;
+    if (Number.isFinite(savedPlayer.estusMax)) player.estusMax = savedPlayer.estusMax;
+    if (Number.isFinite(savedPlayer.x)) player.x = savedPlayer.x;
+    if (Number.isFinite(savedPlayer.y)) player.y = savedPlayer.y;
+    if (Number.isFinite(savedSouls)) player.souls = savedSouls;
+    playtimeSeconds = Number.isFinite(data.playtimeSeconds) ? data.playtimeSeconds : 0;
+    autosaveTimer = 0;
+    if (savedCheckpoint) {
+      player.checkpoint = { ...player.checkpoint, ...savedCheckpoint };
+    }
+    if (data.flags) {
+      bossDefeated = Boolean(data.flags.bossDefeated);
+      localStorage.setItem(bossDefeatedKey, bossDefeated ? "true" : "false");
+      if (Array.isArray(data.flags.pickupsCollected)) {
+        collectedPickups.clear();
+        data.flags.pickupsCollected.forEach((id) => collectedPickups.add(id));
+        saveCollectedPickups(collectedPickups);
+      }
+      if (Array.isArray(data.flags.miniBossesDefeated)) {
+        defeatedMiniBosses.clear();
+        data.flags.miniBossesDefeated.forEach((id) => defeatedMiniBosses.add(id));
+        saveMiniBosses(defeatedMiniBosses);
+      }
+    }
+    suppressAutoSave = true;
+    if (player.checkpoint?.roomId) {
+      const spawnX = Number.isFinite(player.checkpoint.x) ? player.checkpoint.x : player.x;
+      const spawnY = Number.isFinite(player.checkpoint.y) ? player.checkpoint.y : player.y;
+      loadRoom(player.checkpoint.roomId, { spawn: { x: spawnX, y: spawnY } });
+      cpText.textContent = player.checkpoint.id || "—";
+    }
+    suppressAutoSave = false;
+    refreshEquipmentStats();
+    return true;
+  };
+
   const updateContinueAvailability = () => {
     const continueItem = menuItems.find((item) => item.dataset.action === "continue");
-    const available = hasSave();
+    const available = true;
     if (!continueItem) return;
     continueItem.classList.toggle("is-disabled", !available);
     continueItem.disabled = !available;
@@ -316,8 +444,17 @@ import {
     }
   };
 
+  const updateSaveAvailability = () => {
+    const saveItem = menuItems.find((item) => item.dataset.action === "save");
+    if (!saveItem) return;
+    const available = Boolean(activeSlotId);
+    saveItem.classList.toggle("is-disabled", !available);
+    saveItem.disabled = !available;
+  };
+
   const renderMenu = () => {
     updateContinueAvailability();
+    updateSaveAvailability();
     menuItems.forEach((item, index) => {
       item.classList.toggle("is-selected", index === menuIndex);
     });
@@ -339,33 +476,175 @@ import {
   const playMenuMove = () => {};
   const playMenuConfirm = () => {};
 
-  const loadGame = () => {
-    const data = loadLocalSave();
-    if (!data) {
-      toast("Nenhum save encontrado.");
-      return;
+  const getFirstEmptySlotIndex = () => {
+    const index = SLOT_IDS.findIndex((slotId) => !slotCache.get(slotId));
+    return index === -1 ? 0 : index;
+  };
+
+  const updateProfileSelection = () => {
+    profilesSlots.forEach((slot, index) => {
+      slot.classList.toggle("is-selected", index === profilesIndex);
+    });
+    const slotId = SLOT_IDS[profilesIndex];
+    if (clearConfirmSlotId && clearConfirmSlotId !== slotId) {
+      clearConfirmSlotId = null;
+      clearConfirm.classList.add("hidden");
     }
-    try {
-      if (!applySaveData(data)) throw new Error("Save inválido.");
-      toast("Save carregado.");
-    } catch (error) {
-      console.warn("Falha ao carregar save:", error);
-      toast("Save corrompido.");
+    const hasSave = slotCache.has(slotId);
+    clearSaveBtn.classList.toggle("hidden", !hasSave || Boolean(clearConfirmSlotId));
+  };
+
+  const renderProfileSlots = () => {
+    profilesSlots.forEach((slot) => {
+      const slotId = slot.dataset.slot;
+      const data = slotCache.get(slotId);
+      const title = slot.querySelector(".slot-title");
+      const meta = slot.querySelector(".slot-meta");
+      if (data) {
+        const checkpoint = data.checkpoint || data.player?.checkpoint;
+        const location = checkpoint?.id || checkpoint?.roomId || "Ruínas";
+        const souls = Number.isFinite(data.souls)
+          ? data.souls
+          : Number.isFinite(data.player?.souls)
+            ? data.player.souls
+            : 0;
+        const playtime = formatPlaytime(data.playtimeSeconds || 0);
+        const lastSave = formatUpdatedAt(data.updatedAt);
+        title.textContent = location;
+        meta.textContent = `Souls ${souls} • Tempo ${playtime} • Último save ${lastSave}`;
+        slot.classList.remove("is-empty");
+      } else {
+        title.textContent = "NEW GAME";
+        meta.textContent = "—";
+        slot.classList.add("is-empty");
+      }
+    });
+    updateProfileSelection();
+  };
+
+  const loadProfileSlots = async () => {
+    slotCache.clear();
+    clearConfirmSlotId = null;
+    clearConfirm.classList.add("hidden");
+    SLOT_IDS.forEach((slotId) => {
+      const localData = loadSlotLocal(slotId);
+      if (localData) slotCache.set(slotId, normalizeSlotData(localData));
+    });
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      try {
+        const snapshot = await getDocs(collection(db, "saves", uid, "slots"));
+        snapshot.forEach((docSnap) => {
+          if (!SLOT_IDS.includes(docSnap.id)) return;
+          slotCache.set(docSnap.id, normalizeSlotData(docSnap.data()));
+        });
+      } catch (error) {
+        console.warn("Falha ao carregar slots na nuvem:", error);
+        toast("Cloud indisponível.");
+      }
     }
+    const activeIndex = activeSlotId ? SLOT_IDS.indexOf(activeSlotId) : -1;
+    profilesIndex = activeIndex >= 0 ? activeIndex : getFirstEmptySlotIndex();
+    renderProfileSlots();
+  };
+
+  const saveActiveSlot = async (reason = "manual", { announce = false } = {}) => {
+    if (!activeSlotId) {
+      if (announce) toast("Nenhum slot ativo.");
+      return false;
+    }
+    const data = buildSaveData();
+    saveSlotLocal(activeSlotId, data);
+    slotCache.set(activeSlotId, normalizeSlotData(data));
+    if (state === "profiles") {
+      renderProfileSlots();
+    }
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      try {
+        await saveSlot(uid, activeSlotId, data);
+      } catch (error) {
+        console.warn("Falha ao salvar na nuvem:", error);
+        if (announce) toast("Falha ao salvar na nuvem. Save local atualizado.");
+      }
+    }
+    if (announce) toast("Progresso salvo.");
+    return true;
+  };
+
+  let lastSaveAt = 0;
+  const requestSave = async (reason = "auto") => {
+    const t = now();
+    if (t - lastSaveAt < 1500) return;
+    lastSaveAt = t;
+    await saveActiveSlot(reason);
+  };
+
+  const startNewGameFromSlot = (slotId) => {
+    activeSlotId = slotId;
+    playtimeSeconds = 0;
+    autosaveTimer = 0;
+    suppressAutoSave = true;
+    resetAll({ resetInventory: true });
+    suppressAutoSave = false;
+    setState("game");
+  };
+
+  const continueFromSlot = (slotId, data) => {
+    if (!data) return;
+    activeSlotId = slotId;
+    applySaveData(data);
+    setState("game");
+  };
+
+  const handleProfileConfirm = () => {
+    clearConfirmSlotId = null;
+    clearConfirm.classList.add("hidden");
+    const slotId = SLOT_IDS[profilesIndex];
+    const data = slotCache.get(slotId);
+    if (data) {
+      continueFromSlot(slotId, data);
+    } else {
+      startNewGameFromSlot(slotId);
+    }
+  };
+
+  const handleClearSave = async () => {
+    const slotId = clearConfirmSlotId;
+    if (!slotId) return;
+    deleteSlotLocal(slotId);
+    slotCache.delete(slotId);
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      try {
+        await deleteSlot(uid, slotId);
+      } catch (error) {
+        console.warn("Falha ao apagar slot na nuvem:", error);
+        toast("Cloud indisponível.");
+      }
+    }
+    clearConfirmSlotId = null;
+    clearConfirm.classList.add("hidden");
+    toast("Save apagado.");
+    renderProfileSlots();
   };
 
   const handleMenuAction = async (action) => {
     if (action === "start") {
-      resetAll({ resetInventory: true });
-      setState("game");
+      setState("profiles");
+      await loadProfileSlots();
       playMenuConfirm();
       return;
     }
     if (action === "continue") {
-      if (!hasSave()) return;
-      loadGame();
-      setState("game");
+      setState("profiles");
+      await loadProfileSlots();
       playMenuConfirm();
+      return;
+    }
+    if (action === "save") {
+      playMenuConfirm();
+      await saveActiveSlot("manual", { announce: true });
       return;
     }
     if (action === "options") {
@@ -631,6 +910,38 @@ import {
     });
   });
 
+  profilesSlots.forEach((slot, index) => {
+    slot.addEventListener("click", () => {
+      profilesIndex = index;
+      updateProfileSelection();
+    });
+    slot.addEventListener("dblclick", () => {
+      profilesIndex = index;
+      updateProfileSelection();
+      handleProfileConfirm();
+    });
+  });
+
+  profilesBack.addEventListener("click", () => setState("menu"));
+  clearSaveBtn.addEventListener("click", () => {
+    const slotId = SLOT_IDS[profilesIndex];
+    if (!slotCache.has(slotId)) return;
+    clearConfirmSlotId = slotId;
+    clearSaveBtn.classList.add("hidden");
+    clearConfirm.classList.remove("hidden");
+  });
+  clearConfirm.addEventListener("click", (event) => {
+    const action = event.target?.dataset?.action;
+    if (!action) return;
+    if (action === "confirm") {
+      handleClearSave();
+      return;
+    }
+    clearConfirmSlotId = null;
+    clearConfirm.classList.add("hidden");
+    updateProfileSelection();
+  });
+
   optionsBack.addEventListener("click", () => setState("menu"));
   extrasBack.addEventListener("click", () => setState("menu"));
 
@@ -663,30 +974,13 @@ import {
           name: user.displayName || user.email || "Jogador"
         })
       );
-      try {
-        const cloudData = await loadCloud(user.uid);
-        if (cloudData) {
-          applySaveData(cloudData);
-        } else {
-          const localData = loadLocalSave();
-          if (localData) {
-            applySaveData(localData);
-            toast("Sem save na nuvem. Usando save local.");
-          }
-        }
-      } catch (error) {
-        console.warn("Falha ao carregar save na nuvem:", error);
-        const localData = loadLocalSave();
-        if (localData) {
-          applySaveData(localData);
-          toast("Cloud indisponível. Usando save local.");
-        }
-      }
       setState("menu");
     } else {
       setLoginUi(null);
       menuUser.textContent = "Conectado: —";
       localStorage.removeItem("user");
+      activeSlotId = null;
+      slotCache.clear();
       setState("login");
     }
   });
@@ -895,6 +1189,11 @@ import {
         return;
       }
       if (state === "game") {
+        if (key === "escape") {
+          e.preventDefault();
+          setState("menu");
+          return;
+        }
         keys.add(key);
         if (key === "e" && !e.repeat) input.interact = true;
         if (key === "q" && !e.repeat) input.drink = true;
@@ -919,6 +1218,24 @@ import {
         }
         if (key === "escape") {
           setState("game");
+        }
+        return;
+      }
+      if (state === "profiles") {
+        if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
+        if (key === "arrowup") {
+          profilesIndex = (profilesIndex - 1 + profilesSlots.length) % profilesSlots.length;
+          updateProfileSelection();
+        }
+        if (key === "arrowdown") {
+          profilesIndex = (profilesIndex + 1) % profilesSlots.length;
+          updateProfileSelection();
+        }
+        if (key === "enter") {
+          handleProfileConfirm();
+        }
+        if (key === "escape") {
+          setState("menu");
         }
         return;
       }
@@ -1563,6 +1880,9 @@ import {
       player.vx = 0;
       player.vy = 0;
       updateBossBar();
+      if (!suppressAutoSave && state === "game" && activeSlotId) {
+        requestSave("room");
+      }
     };
 
     const startRoomTransition = (direction) => {
@@ -1942,17 +2262,7 @@ import {
       resetAllRoomsEnemies();
 
       toast(`Descansou em ${b.id}.`);
-      const saveData = buildSaveData();
-      saveLocal(saveData);
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        try {
-          await saveCloud(uid, saveData);
-        } catch (error) {
-          console.warn("Falha ao salvar na nuvem:", error);
-          toast("Falha ao salvar na nuvem. Save local atualizado.");
-        }
-      }
+      await requestSave("bonfire");
     }
   
     function dieAndRespawn(){
@@ -2172,6 +2482,7 @@ import {
         }
         updateBossBar();
         toast("O Penitente de Ferro foi derrotado.");
+        requestSave("boss");
         return { hit: true, killed: true };
       }
       if (boss.poise <= 0 && boss.staggerCooldown <= 0 && boss.state !== "stagger"){
@@ -2354,6 +2665,12 @@ import {
     }
   
     function update(dt){
+      playtimeSeconds += dt;
+      autosaveTimer += dt;
+      if (autosaveTimer >= 30) {
+        autosaveTimer = 0;
+        requestSave("autosave");
+      }
       if (roomFade.active){
         roomFade.t += dt;
         const progress = roomFade.t / roomFade.duration;
