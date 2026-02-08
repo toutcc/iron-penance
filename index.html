@@ -77,6 +77,105 @@
 
   <canvas id="game" width="960" height="540" aria-label="Soulslike 2D"></canvas>
   <div class="damage-flash" id="damageFlash" aria-hidden="true"></div>
+  <div class="pause-overlay hidden" id="pauseOverlay" aria-hidden="true">
+    <div class="pause-vignette"></div>
+    <div class="pause-panel" id="pauseMenu" role="dialog" aria-labelledby="pauseTitle">
+      <h2 class="pause-title" id="pauseTitle">PAUSED</h2>
+      <div class="pause-ornament"></div>
+      <nav class="pause-list" id="pauseMenuList">
+        <button class="pause-item" data-action="continue">CONTINUAR</button>
+        <button class="pause-item" data-action="save">SALVAR PROGRESSO</button>
+        <button class="pause-item" data-action="options">OPÇÕES</button>
+        <button class="pause-item" data-action="quit">SAIR PARA MENU</button>
+      </nav>
+    </div>
+    <div class="pause-panel hidden" id="pauseOptions" role="dialog" aria-labelledby="pauseOptionsTitle">
+      <h2 class="pause-title" id="pauseOptionsTitle">OPTIONS</h2>
+      <div class="pause-ornament"></div>
+      <div class="pause-options-body">
+        <nav class="pause-options-list" id="pauseOptionsList">
+          <button class="pause-item" data-section="game">GAME</button>
+          <button class="pause-item" data-section="audio">AUDIO</button>
+          <button class="pause-item" data-section="video">VIDEO</button>
+          <button class="pause-item" data-section="controller">CONTROLLER</button>
+          <button class="pause-item" data-section="keyboard">KEYBOARD</button>
+          <button class="pause-item" data-section="back">BACK</button>
+        </nav>
+        <div class="pause-options-panel" id="pauseOptionsPanel">
+          <section class="options-section" data-section="game">
+            <div class="options-row">
+              <span>Mostrar FPS</span>
+              <button class="options-toggle" data-toggle="show-fps">ON</button>
+            </div>
+            <div class="options-row">
+              <span>Dificuldade</span>
+              <span class="options-value">Em breve</span>
+            </div>
+            <div class="options-row">
+              <span>Vibração</span>
+              <span class="options-value">Em breve</span>
+            </div>
+          </section>
+          <section class="options-section hidden" data-section="audio">
+            <div class="options-row">
+              <label for="pauseVolumeRange">Volume master</label>
+              <div class="options-control">
+                <input type="range" id="pauseVolumeRange" min="0" max="100" step="1" />
+                <span class="options-value" id="pauseVolumeValue">0%</span>
+              </div>
+            </div>
+            <div class="options-row">
+              <span>SFX</span>
+              <span class="options-value">Em breve</span>
+            </div>
+          </section>
+          <section class="options-section hidden" data-section="video">
+            <div class="options-row">
+              <span>Fullscreen</span>
+              <button class="options-toggle" data-toggle="fullscreen">OFF</button>
+            </div>
+            <div class="options-row">
+              <span>Pixel Scale</span>
+              <select class="options-select" id="pausePixelScale">
+                <option value="1">1x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+              </select>
+            </div>
+            <div class="options-row">
+              <span>Brilho</span>
+              <span class="options-value">Em breve</span>
+            </div>
+          </section>
+          <section class="options-section hidden" data-section="controller">
+            <p class="options-placeholder">Em breve.</p>
+          </section>
+          <section class="options-section hidden" data-section="keyboard">
+            <div class="options-row">
+              <span>WASD / ← →</span>
+              <span class="options-value">Mover</span>
+            </div>
+            <div class="options-row">
+              <span>Espaço / W</span>
+              <span class="options-value">Pular</span>
+            </div>
+            <div class="options-row">
+              <span>J</span>
+              <span class="options-value">Atacar</span>
+            </div>
+            <div class="options-row">
+              <span>K</span>
+              <span class="options-value">Rolar</span>
+            </div>
+            <div class="options-row">
+              <span>Rebind</span>
+              <span class="options-value">Em breve</span>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="menu-screen hidden" id="menuScreen" aria-live="polite">
     <div class="menu-fog"></div>

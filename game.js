@@ -55,6 +55,18 @@ import {
   const slotArmor = document.getElementById("slotArmor");
   const slotRelic = document.getElementById("slotRelic");
   const slotConsumable = document.getElementById("slotConsumable");
+  const pauseOverlay = document.getElementById("pauseOverlay");
+  const pauseMenu = document.getElementById("pauseMenu");
+  const pauseMenuList = document.getElementById("pauseMenuList");
+  const pauseMenuItems = Array.from(pauseMenuList.querySelectorAll(".pause-item"));
+  const pauseOptions = document.getElementById("pauseOptions");
+  const pauseOptionsList = document.getElementById("pauseOptionsList");
+  const pauseOptionsItems = Array.from(pauseOptionsList.querySelectorAll(".pause-item"));
+  const pauseOptionsPanel = document.getElementById("pauseOptionsPanel");
+  const pauseOptionsSections = Array.from(pauseOptionsPanel.querySelectorAll(".options-section"));
+  const pauseVolumeRange = document.getElementById("pauseVolumeRange");
+  const pauseVolumeValue = document.getElementById("pauseVolumeValue");
+  const pausePixelScale = document.getElementById("pausePixelScale");
   const toast = (msg, ms = 1300) => {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -104,9 +116,15 @@ import {
   let menuIndex = 0;
   let profilesIndex = 0;
   let inventoryIndex = 0;
+  let pauseIndex = 0;
+  let pauseOptionsIndex = 0;
+  let pauseOptionsSection = "game";
+  let lastUiActionAt = 0;
+  let pauseSaveLocked = false;
   let fpsLimit = 60;
   let showFps = true;
   let volume = 70;
+  let pixelScale = 1;
   let lastFrameTime = 0;
   let activeSlotId = null;
   let playtimeSeconds = 0;
@@ -204,6 +222,42 @@ import {
     inventoryScreen.setAttribute("aria-hidden", "true");
   };
 
+  // ===== Pause Menu UI =====
+  const isPauseState = (value) => value === "pause" || value === "pause_options";
+
+  const showPause = () => {
+    pauseOverlay.classList.remove("hidden");
+    pauseOverlay.setAttribute("aria-hidden", "false");
+    pauseMenu.classList.remove("hidden");
+    pauseOptions.classList.add("hidden");
+    pauseOptionsSection = "game";
+    pauseOptionsIndex = 0;
+    pauseIndex = 0;
+    renderPauseMenu();
+    updatePauseOptionsPanel();
+    keys.clear();
+    consumeActions();
+  };
+
+  const hidePause = () => {
+    pauseOverlay.classList.add("hidden");
+    pauseOverlay.setAttribute("aria-hidden", "true");
+  };
+
+  const showPauseOptions = () => {
+    pauseMenu.classList.add("hidden");
+    pauseOptions.classList.remove("hidden");
+    pauseOptionsIndex = Math.max(0, pauseOptionsItems.findIndex((item) => item.dataset.section === pauseOptionsSection));
+    renderPauseOptions();
+    updatePauseOptionsPanel();
+  };
+
+  const hidePauseOptions = () => {
+    pauseOptions.classList.add("hidden");
+    pauseMenu.classList.remove("hidden");
+    renderPauseMenu();
+  };
+
   inventorySlots.forEach((slotEl, index) => {
     slotEl.addEventListener("click", () => {
       if (state !== "inventory") return;
@@ -216,20 +270,37 @@ import {
     if (state === next) return;
     state = next;
     if (state === "game") {
+      hidePause();
       hideInventory();
       showGame();
       stopMenuLoop();
       startGame();
+    } else if (state === "pause") {
+      hideInventory();
+      showGame();
+      stopMenuLoop();
+      showPause();
+      startGame();
+    } else if (state === "pause_options") {
+      hideInventory();
+      showGame();
+      stopMenuLoop();
+      showPause();
+      showPauseOptions();
+      startGame();
     } else if (state === "inventory") {
+      hidePause();
       stopMenuLoop();
       stopGame();
       showInventory();
     } else if (state === "profiles") {
+      hidePause();
       hideInventory();
       stopGame();
       stopMenuLoop();
       showProfiles();
     } else {
+      hidePause();
       hideInventory();
       stopGame();
       if (state === "login") {
@@ -246,25 +317,50 @@ import {
     fpsPill.classList.toggle("hidden", !showFps);
   };
 
+  const updatePauseOptionsValues = () => {
+    const fpsToggleButton = pauseOptionsPanel.querySelector("[data-toggle=\"show-fps\"]");
+    if (fpsToggleButton) {
+      fpsToggleButton.textContent = showFps ? "ON" : "OFF";
+    }
+    if (pauseVolumeRange) {
+      pauseVolumeRange.value = String(volume);
+    }
+    if (pauseVolumeValue) {
+      pauseVolumeValue.textContent = `${volume}%`;
+    }
+    if (pausePixelScale) {
+      pausePixelScale.value = String(pixelScale);
+    }
+    const fullscreenButton = pauseOptionsPanel.querySelector("[data-toggle=\"fullscreen\"]");
+    if (fullscreenButton) {
+      fullscreenButton.textContent = document.fullscreenElement ? "ON" : "OFF";
+    }
+  };
+
   const loadSettings = () => {
     const storedVolume = Number(localStorage.getItem("ironpenance_volume"));
     const storedShowFps = localStorage.getItem("ironpenance_show_fps");
     const storedFpsLimit = Number(localStorage.getItem("ironpenance_fps_limit"));
+    const storedPixelScale = Number(localStorage.getItem("ironpenance_pixel_scale"));
     if (!Number.isNaN(storedVolume)) volume = storedVolume;
     if (storedShowFps !== null) showFps = storedShowFps === "true";
     if (!Number.isNaN(storedFpsLimit) && storedFpsLimit > 0) fpsLimit = storedFpsLimit;
+    if (!Number.isNaN(storedPixelScale) && storedPixelScale > 0) pixelScale = storedPixelScale;
     volumeRange.value = String(volume);
     volumeValue.textContent = `${volume}%`;
     fpsToggle.checked = showFps;
     fpsLimitRange.value = String(fpsLimit);
     fpsLimitValue.textContent = `${fpsLimit}`;
+    if (pausePixelScale) pausePixelScale.value = String(pixelScale);
     updateFpsVisibility();
+    updatePauseOptionsValues();
   };
 
   const saveSettings = () => {
     localStorage.setItem("ironpenance_volume", String(volume));
     localStorage.setItem("ironpenance_show_fps", String(showFps));
     localStorage.setItem("ironpenance_fps_limit", String(fpsLimit));
+    localStorage.setItem("ironpenance_pixel_scale", String(pixelScale));
   };
 
   const SLOT_IDS = ["1", "2", "3", "4"];
@@ -460,6 +556,33 @@ import {
     });
   };
 
+  const renderPauseMenu = () => {
+    pauseMenuItems.forEach((item, index) => {
+      item.classList.toggle("is-selected", index === pauseIndex);
+    });
+  };
+
+  const renderPauseOptions = () => {
+    pauseOptionsItems.forEach((item, index) => {
+      item.classList.toggle("is-selected", index === pauseOptionsIndex);
+    });
+    updatePauseOptionsPanel();
+  };
+
+  const updatePauseOptionsPanel = () => {
+    pauseOptionsItems.forEach((item, index) => {
+      if (index === pauseOptionsIndex) {
+        if (item.dataset.section && item.dataset.section !== "back") {
+          pauseOptionsSection = item.dataset.section;
+        }
+      }
+    });
+    pauseOptionsSections.forEach((section) => {
+      section.classList.toggle("hidden", section.dataset.section !== pauseOptionsSection);
+    });
+    updatePauseOptionsValues();
+  };
+
   const updateMenuInput = (direction) => {
     const enabledItems = menuItems.filter((item) => !item.disabled);
     if (!enabledItems.length) return;
@@ -471,6 +594,52 @@ import {
     menuIndex = menuItems.indexOf(enabledItems[nextEnabledIndex]);
     renderMenu();
     playMenuMove();
+  };
+
+  const updatePauseInput = (direction) => {
+    if (!pauseMenuItems.length) return;
+    pauseIndex = (pauseIndex + direction + pauseMenuItems.length) % pauseMenuItems.length;
+    renderPauseMenu();
+  };
+
+  const updatePauseOptionsInput = (direction) => {
+    if (!pauseOptionsItems.length) return;
+    pauseOptionsIndex = (pauseOptionsIndex + direction + pauseOptionsItems.length) % pauseOptionsItems.length;
+    renderPauseOptions();
+  };
+
+  const handlePauseAction = async (action) => {
+    if (action === "continue") {
+      setState("game");
+      return;
+    }
+    if (action === "save") {
+      if (pauseSaveLocked) return;
+      pauseSaveLocked = true;
+      pauseMenuItems.find((item) => item.dataset.action === "save")?.setAttribute("disabled", "true");
+      await saveGame();
+      setTimeout(() => {
+        pauseSaveLocked = false;
+        pauseMenuItems.find((item) => item.dataset.action === "save")?.removeAttribute("disabled");
+      }, 1000);
+      return;
+    }
+    if (action === "options") {
+      setState("pause_options");
+      return;
+    }
+    if (action === "quit") {
+      setState("menu");
+    }
+  };
+
+  const handlePauseOptionsAction = async (section) => {
+    if (section === "back") {
+      setState("pause");
+      return;
+    }
+    pauseOptionsSection = section;
+    updatePauseOptionsPanel();
   };
 
   const playMenuMove = () => {};
@@ -569,6 +738,28 @@ import {
       }
     }
     if (announce) toast("Progresso salvo.");
+    return true;
+  };
+
+  // ===== Save helper for pause menu =====
+  const saveGame = async () => {
+    if (!activeSlotId) {
+      toast("Nenhum slot ativo.");
+      return false;
+    }
+    const data = buildSaveData();
+    saveSlotLocal(activeSlotId, data);
+    slotCache.set(activeSlotId, normalizeSlotData(data));
+    toast("Progresso salvo.");
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      try {
+        await saveSlot(uid, activeSlotId, data);
+      } catch (error) {
+        console.warn("Falha ao salvar na nuvem:", error);
+        toast("Cloud indisponível, salvo localmente.");
+      }
+    }
     return true;
   };
 
@@ -902,7 +1093,9 @@ import {
       menuIndex = index;
       renderMenu();
     });
-    item.addEventListener("click", () => {
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       if (item.disabled) return;
       menuIndex = index;
       renderMenu();
@@ -911,14 +1104,44 @@ import {
   });
 
   profilesSlots.forEach((slot, index) => {
-    slot.addEventListener("click", () => {
+    slot.addEventListener("mouseenter", () => {
       profilesIndex = index;
       updateProfileSelection();
     });
-    slot.addEventListener("dblclick", () => {
+    slot.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       profilesIndex = index;
       updateProfileSelection();
       handleProfileConfirm();
+    });
+  });
+
+  pauseMenuItems.forEach((item, index) => {
+    item.addEventListener("mouseenter", () => {
+      pauseIndex = index;
+      renderPauseMenu();
+    });
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      pauseIndex = index;
+      renderPauseMenu();
+      handlePauseAction(item.dataset.action);
+    });
+  });
+
+  pauseOptionsItems.forEach((item, index) => {
+    item.addEventListener("mouseenter", () => {
+      pauseOptionsIndex = index;
+      renderPauseOptions();
+    });
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      pauseOptionsIndex = index;
+      renderPauseOptions();
+      handlePauseOptionsAction(item.dataset.section);
     });
   });
 
@@ -948,18 +1171,64 @@ import {
   volumeRange.addEventListener("input", (event) => {
     volume = Number(event.target.value);
     volumeValue.textContent = `${volume}%`;
+    updatePauseOptionsValues();
     saveSettings();
   });
 
   fpsToggle.addEventListener("change", (event) => {
     showFps = event.target.checked;
     updateFpsVisibility();
+    updatePauseOptionsValues();
     saveSettings();
   });
 
   fpsLimitRange.addEventListener("input", (event) => {
     fpsLimit = Number(event.target.value);
     fpsLimitValue.textContent = `${fpsLimit}`;
+    saveSettings();
+  });
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (error) {
+      console.warn("Falha ao alternar fullscreen:", error);
+      toast("Fullscreen indisponível.");
+    } finally {
+      updatePauseOptionsValues();
+    }
+  };
+
+  pauseOptionsPanel.addEventListener("click", (event) => {
+    const target = event.target.closest(".options-toggle");
+    if (!target) return;
+    const toggle = target.dataset.toggle;
+    if (toggle === "show-fps") {
+      showFps = !showFps;
+      updateFpsVisibility();
+      fpsToggle.checked = showFps;
+      saveSettings();
+      updatePauseOptionsValues();
+    }
+    if (toggle === "fullscreen") {
+      toggleFullscreen();
+    }
+  });
+
+  pauseVolumeRange.addEventListener("input", (event) => {
+    volume = Number(event.target.value);
+    if (pauseVolumeValue) pauseVolumeValue.textContent = `${volume}%`;
+    volumeRange.value = String(volume);
+    volumeValue.textContent = `${volume}%`;
+    saveSettings();
+  });
+
+  pausePixelScale.addEventListener("change", (event) => {
+    pixelScale = Number(event.target.value) || 1;
     saveSettings();
   });
 
@@ -987,6 +1256,10 @@ import {
 
   window.addEventListener("resize", () => {
     resizeMenuCanvas();
+  });
+
+  document.addEventListener("fullscreenchange", () => {
+    updatePauseOptionsValues();
   });
 
   loadSettings();
@@ -1180,6 +1453,15 @@ import {
   
     // ===== Input =====
     const keys = new Set();
+    // ===== UI input edge trigger =====
+    const canProcessUiInput = (event) => {
+      if (event.repeat) return false;
+      const t = now();
+      if (t - lastUiActionAt < 150) return false;
+      lastUiActionAt = t;
+      return true;
+    };
+
     window.addEventListener("keydown", (e) => {
       const key = e.key.toLowerCase();
       if (key === "tab") {
@@ -1191,7 +1473,7 @@ import {
       if (state === "game") {
         if (key === "escape") {
           e.preventDefault();
-          setState("menu");
+          setState("pause");
           return;
         }
         keys.add(key);
@@ -1203,8 +1485,37 @@ import {
         if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
         return;
       }
+      if (state === "pause") {
+        if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
+        if (!canProcessUiInput(e)) return;
+        if (key === "arrowup") updatePauseInput(-1);
+        if (key === "arrowdown") updatePauseInput(1);
+        if (key === "enter") {
+          const current = pauseMenuItems[pauseIndex];
+          if (current) handlePauseAction(current.dataset.action);
+        }
+        if (key === "escape") {
+          setState("game");
+        }
+        return;
+      }
+      if (state === "pause_options") {
+        if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
+        if (!canProcessUiInput(e)) return;
+        if (key === "arrowup") updatePauseOptionsInput(-1);
+        if (key === "arrowdown") updatePauseOptionsInput(1);
+        if (key === "enter") {
+          const current = pauseOptionsItems[pauseOptionsIndex];
+          if (current) handlePauseOptionsAction(current.dataset.section);
+        }
+        if (key === "escape") {
+          setState("pause");
+        }
+        return;
+      }
       if (state === "inventory") {
         if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
+        if (!canProcessUiInput(e)) return;
         if (key === "arrowup") {
           inventoryIndex = (inventoryIndex - 1 + inventoryOrder.length) % inventoryOrder.length;
           updateInventoryUI();
@@ -1223,6 +1534,7 @@ import {
       }
       if (state === "profiles") {
         if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
+        if (!canProcessUiInput(e)) return;
         if (key === "arrowup") {
           profilesIndex = (profilesIndex - 1 + profilesSlots.length) % profilesSlots.length;
           updateProfileSelection();
@@ -1241,6 +1553,7 @@ import {
       }
       if (state === "menu" || state === "options" || state === "extras") {
         if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
+        if (!canProcessUiInput(e)) return;
         if (state === "menu") {
           if (key === "arrowup") updateMenuInput(-1);
           if (key === "arrowdown") updateMenuInput(1);
@@ -3219,7 +3532,7 @@ import {
   
     // ===== Main Loop =====
     function frame(){
-      if (state !== "game") {
+      if (state !== "game" && !isPauseState(state)) {
         rafId = null;
         return;
       }
@@ -3241,7 +3554,9 @@ import {
         return;
       }
   
-      update(dt);
+      if (state === "game") {
+        update(dt);
+      }
       draw();
   
       // FPS calc
