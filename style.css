@@ -670,6 +670,41 @@
     padding-left: 18px;
   }
 
+  .map-panel{
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .map-figure{
+    margin: 0;
+    display: grid;
+    gap: 8px;
+  }
+
+  .map-figure img{
+    width: 100%;
+    max-height: 320px;
+    object-fit: cover;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,.12);
+    box-shadow: 0 18px 45px rgba(0,0,0,.45);
+  }
+
+  .map-figure figcaption{
+    font-size: 12px;
+    color: rgba(220,228,245,.72);
+  }
+
+  .map-guidelines{
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 6px;
+    font-size: 12px;
+    color: rgba(220,228,245,.78);
+  }
+
   .menu-footer{
     position: absolute;
     bottom: 18px;
