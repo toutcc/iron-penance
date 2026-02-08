@@ -51,8 +51,11 @@ import {
       }
       viewport.dpr = dpr;
       viewport.scale = Math.min(displayWidth / BASE_W, displayHeight / BASE_H);
-      viewport.offsetX = (displayWidth - BASE_W * viewport.scale) / 2;
-      viewport.offsetY = (displayHeight - BASE_H * viewport.scale) / 2;
+      const scaledW = BASE_W * viewport.scale;
+      const scaledH = BASE_H * viewport.scale;
+      viewport.offsetX = Math.floor((displayWidth - scaledW) / 2);
+      viewport.offsetY = Math.floor((displayHeight - scaledH) / 2);
+      ctx.imageSmoothingEnabled = false;
     };
   
     // ===== HUD =====
@@ -5129,9 +5132,9 @@ import {
   
     const drawFogOverlay = (ctx) => {
       ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const bufferW = canvas.width;
-      const bufferH = canvas.height;
+      ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
+      const bufferW = BASE_W;
+      const bufferH = BASE_H;
       const baseFog = ctx.createLinearGradient(0, 0, 0, bufferH);
       baseFog.addColorStop(0, "rgba(8,10,16,0.22)");
       baseFog.addColorStop(1, "rgba(5,6,10,0.45)");
@@ -5161,10 +5164,14 @@ import {
     function draw(){
       // background
       ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
+      const fillWorldRect = (x, y, w, h) => {
+        ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+      };
   
       // camera shake
       const shakeMag = cam.shakeTime > 0 ? cam.shakeMag : 0;
@@ -5179,25 +5186,25 @@ import {
       g.addColorStop(0, "#0b1020");
       g.addColorStop(1, "#07080f");
       ctx.fillStyle = g;
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      fillWorldRect(0, 0, VIEW_W, VIEW_H);
   
       // distant silhouettes
       ctx.globalAlpha = 0.20;
       ctx.fillStyle = "#0b0f1a";
       for (let i=0;i<20;i++){
         const x = ((i*220) - (cam.x*0.25)) % 2400;
-        ctx.fillRect(x, 260, 120, 160);
+        fillWorldRect(x, 260, 120, 160);
       }
       ctx.globalAlpha = 1;
   
       // Solids
       for (const s of level.solids){
         ctx.fillStyle = "#1a2233";
-        ctx.fillRect(s.x + ox, s.y + oy, s.w, s.h);
+        fillWorldRect(s.x + ox, s.y + oy, s.w, s.h);
   
         // top highlight
         ctx.fillStyle = "rgba(255,255,255,.06)";
-        ctx.fillRect(s.x + ox, s.y + oy, s.w, 3);
+        fillWorldRect(s.x + ox, s.y + oy, s.w, 3);
       }
       // Gates (dash/door/boss)
       for (const gate of worldGates){
@@ -5210,13 +5217,13 @@ import {
         else if (gate.type === "pogo") ctx.fillStyle = "rgba(180,110,200,.6)";
         else if (gate.type === "dash") ctx.fillStyle = "rgba(120,170,255,.6)";
         else ctx.fillStyle = "rgba(80,60,50,.7)";
-        ctx.fillRect(gate.x + ox, gate.y + oy, gate.w, gate.h);
+        fillWorldRect(gate.x + ox, gate.y + oy, gate.w, gate.h);
       }
 
       // Espinhos
       for (const spike of worldSpikes){
         ctx.fillStyle = "rgba(120,60,80,.8)";
-        ctx.fillRect(spike.x + ox, spike.y + oy, spike.w, spike.h);
+        fillWorldRect(spike.x + ox, spike.y + oy, spike.w, spike.h);
       }
   
       // Bonfires
@@ -5231,7 +5238,7 @@ import {
   
         // stand
         ctx.fillStyle = "#3a2f22";
-        ctx.fillRect(b.x + ox, b.y + 20 + oy, b.w, b.h - 20);
+        fillWorldRect(b.x + ox, b.y + 20 + oy, b.w, b.h - 20);
   
         // glow ring
         ctx.strokeStyle = "rgba(255,170,80,.35)";
@@ -5297,9 +5304,9 @@ import {
         ctx.globalAlpha = 1;
 
         ctx.fillStyle = "rgba(200,190,175,.85)";
-        ctx.fillRect(npc.x + ox, npc.y + oy, npc.w, npc.h);
+        fillWorldRect(npc.x + ox, npc.y + oy, npc.w, npc.h);
         ctx.fillStyle = "#0a0c12";
-        ctx.fillRect(npc.x + 8 + ox, npc.y + 16 + oy, 4, 4);
+        fillWorldRect(npc.x + 8 + ox, npc.y + 16 + oy, 4, 4);
 
         ctx.fillStyle = "rgba(255,220,170,.9)";
         ctx.beginPath();
@@ -5325,7 +5332,7 @@ import {
           ctx.fillStyle = `rgba(255,140,90,${pulse})`;
         }
         if (e.hitT > 0) ctx.fillStyle = "#caa1a1";
-        ctx.fillRect(e.x + ox, e.y + oy, e.w, e.h);
+        fillWorldRect(e.x + ox, e.y + oy, e.w, e.h);
 
         if (e.state === "windup"){
           ctx.strokeStyle = "rgba(255,160,120,.65)";
@@ -5336,15 +5343,15 @@ import {
         // face marker
         ctx.fillStyle = "#0a0c12";
         const eyeX = e.face === 1 ? (e.x + e.w - 10) : (e.x + 6);
-        ctx.fillRect(eyeX + ox, e.y + 14 + oy, 4, 4);
+        fillWorldRect(eyeX + ox, e.y + 14 + oy, 4, 4);
   
         // hp bar
         if (e.hp > 0){
           const ratio = e.hp / e.hpMax;
           ctx.fillStyle = "rgba(0,0,0,.35)";
-          ctx.fillRect(e.x + ox, e.y - 10 + oy, e.w, 5);
+          fillWorldRect(e.x + ox, e.y - 10 + oy, e.w, 5);
           ctx.fillStyle = "rgba(255,80,120,.9)";
-          ctx.fillRect(e.x + ox, e.y - 10 + oy, e.w * ratio, 5);
+          fillWorldRect(e.x + ox, e.y - 10 + oy, e.w * ratio, 5);
         }
       }
 
@@ -5365,18 +5372,18 @@ import {
           bossColor = "#d6c6c0";
         }
         ctx.fillStyle = bossColor;
-        ctx.fillRect(boss.x + ox, boss.y + oy, boss.w, boss.h);
+        fillWorldRect(boss.x + ox, boss.y + oy, boss.w, boss.h);
 
         ctx.fillStyle = "#0a0c12";
         const eyeX = boss.face === 1 ? (boss.x + boss.w - 16) : (boss.x + 8);
-        ctx.fillRect(eyeX + ox, boss.y + 26 + oy, 6, 6);
+        fillWorldRect(eyeX + ox, boss.y + 26 + oy, 6, 6);
       }
 
       // Hit particles
       if (hitParticles.length){
         for (const p of hitParticles){
           ctx.fillStyle = p.color || "rgba(255,210,120,.9)";
-          ctx.fillRect(p.x + ox, p.y + oy, p.size, p.size);
+          fillWorldRect(p.x + ox, p.y + oy, p.size, p.size);
         }
       }
   
@@ -5394,12 +5401,12 @@ import {
       if (player.invulT > 0) body = "rgba(215,221,233,.65)";
       if (player.hurtT > 0) body = "#ffb3c0";
       ctx.fillStyle = body;
-      ctx.fillRect(player.x + ox, player.y + oy, player.w, player.h);
+      fillWorldRect(player.x + ox, player.y + oy, player.w, player.h);
   
       // "hood" / head
       ctx.fillStyle = "#0a0c12";
       const eyeX = player.face === 1 ? (player.x + player.w - 10) : (player.x + 6);
-      ctx.fillRect(eyeX + ox, player.y + 14 + oy, 4, 4);
+      fillWorldRect(eyeX + ox, player.y + 14 + oy, 4, 4);
   
       // Attack arc
       if (player.attackT > 0){
@@ -5415,13 +5422,9 @@ import {
         const intersection = intersectRect(viewRect, zone.rect);
         if (!intersection) continue;
         ctx.fillStyle = "rgba(8,10,16,0.55)";
-        ctx.fillRect(intersection.x - cam.x, intersection.y - cam.y, intersection.w, intersection.h);
+        fillWorldRect(intersection.x - cam.x, intersection.y - cam.y, intersection.w, intersection.h);
       }
 
-      // ground info
-      ctx.fillStyle = "rgba(255,255,255,.06)";
-      ctx.fillRect(0, 500, VIEW_W, 2);
-  
       // HUD update handled in renderHUD()
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
