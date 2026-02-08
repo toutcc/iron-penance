@@ -27,7 +27,7 @@
     width: 100vw;
     height: 100vh;
     pointer-events: auto;
-    z-index: 2;
+    z-index: 0;
     transition: opacity .2s ease, visibility .2s ease;
   }
 
@@ -38,6 +38,7 @@
     height: 100%;
     display: block;
     background: #000;
+    z-index: 0;
   }
 
   #hkHud{
@@ -52,7 +53,7 @@
     color: #f1f4ff;
     text-shadow: 0 2px 6px rgba(0,0,0,.45);
     pointer-events: none;
-    z-index: 6;
+    z-index: 10;
   }
 
   #hkHud .row{
@@ -202,7 +203,7 @@
     background: linear-gradient(180deg, rgba(30,34,50,.85), rgba(12,14,22,.78));
     box-shadow: var(--shadow);
     text-align: center;
-    z-index: 5;
+    z-index: 10;
   }
 
   .boss-bar.hidden{
@@ -254,7 +255,7 @@
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.12s ease;
-    z-index: 15;
+    z-index: 12;
   }
 
   .damage-flash.show{
@@ -528,7 +529,7 @@
     align-items: center;
     justify-content: center;
     background: radial-gradient(1200px 700px at 50% 20%, #1a1f33 0%, #0a0d14 55%, #06070c 100%);
-    z-index: 15;
+    z-index: 20;
     overflow: hidden;
     transition: opacity .3s ease, visibility .3s ease;
   }
@@ -838,7 +839,7 @@
     justify-content: center;
     background: rgba(6, 7, 12, 0.68);
     backdrop-filter: blur(6px);
-    z-index: 19;
+    z-index: 20;
     transition: opacity .25s ease, visibility .25s ease;
   }
 
@@ -1047,7 +1048,7 @@
     align-items: center;
     justify-content: center;
     background: radial-gradient(1200px 720px at 50% 25%, #231b1d 0%, #0d0c12 55%, #06070c 100%);
-    z-index: 16;
+    z-index: 20;
     overflow: hidden;
     transition: opacity .3s ease, visibility .3s ease;
   }
@@ -1261,7 +1262,7 @@
     align-items: center;
     justify-content: center;
     background: radial-gradient(900px 600px at 40% 20%, rgba(60,70,90,.35), rgba(6, 7, 12, 0.92) 60%);
-    z-index: 18;
+    z-index: 20;
     transition: opacity .2s ease, visibility .2s ease;
   }
 
@@ -1518,7 +1519,7 @@
     align-items: center;
     justify-content: center;
     background: radial-gradient(1200px 700px at 40% 20%, rgba(40,44,70,.5), rgba(6,7,12,.92) 60%);
-    z-index: 19;
+    z-index: 20;
     padding: 24px;
     transition: opacity .2s ease, visibility .2s ease;
   }
@@ -1702,7 +1703,7 @@
     align-items: center;
     justify-content: center;
     background: radial-gradient(1200px 700px at 50% 25%, rgba(50,38,58,.5), rgba(7,8,14,.94) 62%);
-    z-index: 19;
+    z-index: 20;
     padding: 24px;
     transition: opacity .2s ease, visibility .2s ease;
   }

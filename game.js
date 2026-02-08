@@ -2670,13 +2670,6 @@ import {
     ];
     const zoneMap = new Map(zones.map((zone) => [zone.id, zone]));
 
-    const fogVolumes = [
-      { id: "fog_gallery_ruins", x: ZONE_X.ruins - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
-      { id: "fog_ruins_antechamber", x: ZONE_X.antechamber - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
-      { id: "fog_antechamber_boss", x: ZONE_X.boss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
-      { id: "fog_boss_foundry", x: ZONE_X.foundry - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
-      { id: "fog_foundry_abyss", x: ZONE_X.abyss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" }
-    ];
 
     const offsetList = (list, dx, dy = 0) => list.map((item) => ({ ...item, x: item.x + dx, y: item.y + dy }));
     const offsetEnemies = (list, dx, dy = 0) => list.map((enemy) => {
@@ -5134,6 +5127,36 @@ import {
       if (fellOut || leftVoid || rightVoid) dieAndRespawn();
     }
   
+    const drawFogOverlay = (ctx) => {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const bufferW = canvas.width;
+      const bufferH = canvas.height;
+      const baseFog = ctx.createLinearGradient(0, 0, 0, bufferH);
+      baseFog.addColorStop(0, "rgba(8,10,16,0.22)");
+      baseFog.addColorStop(1, "rgba(5,6,10,0.45)");
+      ctx.fillStyle = baseFog;
+      ctx.fillRect(0, 0, bufferW, bufferH);
+
+      const cx = bufferW / 2;
+      const cy = bufferH / 2;
+      const maxRadius = Math.max(bufferW, bufferH) * 0.7;
+      const vignette = ctx.createRadialGradient(cx, cy, maxRadius * 0.2, cx, cy, maxRadius);
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(0.55, "rgba(0,0,0,0.25)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.75)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, bufferW, bufferH);
+
+      const edgeFog = ctx.createRadialGradient(cx, cy, maxRadius * 0.15, cx, cy, maxRadius);
+      edgeFog.addColorStop(0, "rgba(0,0,0,0)");
+      edgeFog.addColorStop(0.65, "rgba(12,14,20,0.14)");
+      edgeFog.addColorStop(1, "rgba(12,14,20,0.3)");
+      ctx.fillStyle = edgeFog;
+      ctx.fillRect(0, 0, bufferW, bufferH);
+      ctx.restore();
+    };
+
     // ===== Render =====
     function draw(){
       // background
@@ -5386,22 +5409,6 @@ import {
         ctx.strokeRect(ah.x + ox, ah.y + oy, ah.w, ah.h);
       }
   
-      // UI hint near bonfire
-      const nb = nearestBonfire();
-      if (nb.b && nb.d < 80){
-        ctx.fillStyle = "rgba(255,255,255,.85)";
-        ctx.font = "14px ui-sans-serif, system-ui, Arial";
-        const hint = nb.b.locked && !isBossDefeated(currentBossId) ? "Fogueira selada" : "Pressione E para descansar";
-        ctx.fillText(hint, nb.b.x - 40 + ox, nb.b.y - 10 + oy);
-      }
-
-      const questNpc = getQuestGiverInRange();
-      if (questNpc && state === "game") {
-        ctx.fillStyle = "rgba(255,235,200,.9)";
-        ctx.font = "14px ui-sans-serif, system-ui, Arial";
-        ctx.fillText("Pressione E para falar", questNpc.x - 30 + ox, questNpc.y - 12 + oy);
-      }
-
       const viewRect = { x: cam.x, y: cam.y, w: VIEW_W, h: VIEW_H };
       for (const zone of zones){
         if (visitedZones.has(zone.id)) continue;
@@ -5411,60 +5418,28 @@ import {
         ctx.fillRect(intersection.x - cam.x, intersection.y - cam.y, intersection.w, intersection.h);
       }
 
-      for (const volume of fogVolumes){
-        const intersection = intersectRect(viewRect, volume);
-        if (!intersection) continue;
-        const startX = intersection.x - cam.x;
-        const endX = startX + intersection.w;
-        const grad = ctx.createLinearGradient(startX, 0, endX, 0);
-        if (volume.direction === "right"){
-          grad.addColorStop(0, "rgba(0,0,0,0)");
-          grad.addColorStop(1, "rgba(8,10,16,0.75)");
-        } else {
-          grad.addColorStop(0, "rgba(8,10,16,0.75)");
-          grad.addColorStop(1, "rgba(0,0,0,0)");
-        }
-        ctx.fillStyle = grad;
-        ctx.fillRect(intersection.x - cam.x, intersection.y - cam.y, intersection.w, intersection.h);
-      }
-
-      const cx = VIEW_W / 2;
-      const cy = VIEW_H / 2;
-      const maxRadius = Math.max(cx, cy);
-      const vignette = ctx.createRadialGradient(cx, cy, maxRadius * 0.2, cx, cy, maxRadius);
-      vignette.addColorStop(0, "rgba(0,0,0,0)");
-      vignette.addColorStop(0.6, "rgba(0,0,0,0.28)");
-      vignette.addColorStop(1, "rgba(0,0,0,0.78)");
-      ctx.fillStyle = vignette;
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-
-      const edgeFog = ctx.createRadialGradient(cx, cy, maxRadius * 0.1, cx, cy, maxRadius);
-      edgeFog.addColorStop(0, "rgba(0,0,0,0)");
-      edgeFog.addColorStop(0.7, "rgba(12,14,20,0.18)");
-      edgeFog.addColorStop(1, "rgba(12,14,20,0.32)");
-      ctx.fillStyle = edgeFog;
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-
       // ground info
       ctx.fillStyle = "rgba(255,255,255,.06)";
       ctx.fillRect(0, 500, VIEW_W, 2);
   
       // HUD update handled in renderHUD()
 
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      drawFogOverlay(ctx);
+
       if (deathFade.t > 0){
         const progress = 1 - (deathFade.t / deathFade.duration);
         const alpha = progress < 0.5 ? (progress / 0.5) : ((1 - progress) / 0.5);
         ctx.fillStyle = `rgba(0,0,0,${Math.min(1, Math.max(0, alpha))})`;
-        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
       if (bossDefeatFlash.t > 0){
         const progress = 1 - (bossDefeatFlash.t / bossDefeatFlash.duration);
         const alpha = progress < 0.4 ? (progress / 0.4) : ((1 - progress) / 0.6);
         ctx.fillStyle = `rgba(255,245,230,${Math.min(0.8, Math.max(0, alpha))})`;
-        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
-
     }
   
     // ===== Main Loop =====
