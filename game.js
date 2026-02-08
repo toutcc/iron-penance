@@ -48,6 +48,7 @@ import {
   const fpsPill = document.getElementById("fpsPill");
   const damageFlash = document.getElementById("damageFlash");
   const bossBar = document.getElementById("bossBar");
+  const bossName = document.getElementById("bossName");
   const bossHpFill = document.getElementById("bossHpFill");
   const inventoryOverlay = document.getElementById("inventoryOverlay");
   const inventoryWeight = document.getElementById("inventoryWeight");
@@ -1080,7 +1081,8 @@ import {
     equipment: { ...gameState.equipment },
     pickupCollected: [...collectedPickups],
     flags: {
-      bossDefeated,
+      bossDefeated: { ...bossDefeated },
+      bossRewardsClaimed: { ...bossRewardClaimed },
       doorFlags: { ...doorFlags },
       pickupsCollected: [...collectedPickups],
       miniBossesDefeated: [...defeatedMiniBosses]
@@ -1222,8 +1224,17 @@ import {
       visitedZones = new Set(data.visitedZones);
     }
     if (data.flags) {
-      bossDefeated = Boolean(data.flags.bossDefeated);
-      localStorage.setItem(bossDefeatedKey, bossDefeated ? "true" : "false");
+      if (data.flags.bossDefeated && typeof data.flags.bossDefeated === "object") {
+        bossDefeated = { ...data.flags.bossDefeated };
+        saveBossFlagMap(bossDefeatedKey, bossDefeated);
+      } else if (typeof data.flags.bossDefeated === "boolean") {
+        bossDefeated = { [PRIMARY_BOSS_ID]: data.flags.bossDefeated };
+        saveBossFlagMap(bossDefeatedKey, bossDefeated);
+      }
+      if (data.flags.bossRewardsClaimed && typeof data.flags.bossRewardsClaimed === "object") {
+        bossRewardClaimed = { ...data.flags.bossRewardsClaimed };
+        saveBossFlagMap(bossRewardClaimedKey, bossRewardClaimed);
+      }
       if (data.flags.doorFlags) {
         Object.assign(doorFlags, data.flags.doorFlags);
       }
@@ -1993,14 +2004,29 @@ import {
 
   loadSettings();
 
-  const bossDefeatedKey = "bossDefeated";
+  const PRIMARY_BOSS_ID = "penitent";
+  const bossDefeatedKey = "ironpenance_boss_defeated";
   const bossRewardClaimedKey = "ironpenance_boss_reward_claimed";
   const pickupsKey = "ironpenance_pickups_collected";
   const miniBossKey = "ironpenance_miniboss_defeated";
-  const getBossDefeated = () => localStorage.getItem(bossDefeatedKey) === "true";
-  let bossDefeated = getBossDefeated();
-  const getBossRewardClaimed = () => localStorage.getItem(bossRewardClaimedKey) === "true";
-  let bossRewardClaimed = getBossRewardClaimed();
+  const parseBossFlagMap = (raw, fallbackId) => {
+    if (!raw) return {};
+    if (raw === "true") return { [fallbackId]: true };
+    if (raw === "false") return {};
+    try {
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== "object") return {};
+      return { ...data };
+    } catch (error) {
+      console.warn("Falha ao carregar flags de boss:", error);
+      return {};
+    }
+  };
+  const saveBossFlagMap = (key, map) => {
+    localStorage.setItem(key, JSON.stringify(map));
+  };
+  let bossDefeated = parseBossFlagMap(localStorage.getItem(bossDefeatedKey), PRIMARY_BOSS_ID);
+  let bossRewardClaimed = parseBossFlagMap(localStorage.getItem(bossRewardClaimedKey), PRIMARY_BOSS_ID);
 
   const loadCollectedPickups = () => {
     const raw = localStorage.getItem(pickupsKey);
@@ -2042,6 +2068,7 @@ import {
     // ===== Utils =====
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const lerp = (a,b,t) => a + (b-a)*t;
+    const randRange = (min, max) => min + Math.random() * (max - min);
     const sign = (x) => (x < 0 ? -1 : x > 0 ? 1 : 0);
     const now = () => performance.now();
 
@@ -2121,6 +2148,15 @@ import {
         icon: "✥",
         description: "Um núcleo pesado que fortalece a determinação.",
         stats: { effects: [{ type: "estusMax", value: 1, label: "+1 Estus" }, { type: "wallJump", value: 1, label: "Wall Jump simbiótico" }] }
+      },
+      relic_penitent_sigil: {
+        id: "relic_penitent_sigil",
+        name: "Selo do Penitente",
+        type: "relic",
+        rarity: "legendary",
+        icon: "✶",
+        description: "Um juramento forjado na arena, trazendo vigor e foco.",
+        stats: { effects: [{ type: "staminaRegen", value: 10, label: "+10 regen stamina" }, { type: "estusMax", value: 1, label: "+1 Estus" }] }
       },
       material_iron_shard: {
         id: "material_iron_shard",
@@ -2414,7 +2450,7 @@ import {
   
     // ===== Entities =====
     function makePlayer(){
-      const baseEstusMax = bossRewardClaimed ? 4 : 3;
+      const baseEstusMax = bossRewardClaimed[PRIMARY_BOSS_ID] ? 4 : 3;
       return {
         x: 120, y: 740 - YSHIFT,
         w: 26, h: 44,
@@ -2499,8 +2535,23 @@ import {
       };
     }
 
-    function makeBoss(x, y){
+    const BOSS_DEFS = {
+      penitent: {
+        id: "penitent",
+        name: "O Penitente de Ferro",
+        hpMax: 1200,
+        poiseMax: 220,
+        phaseThresholds: [0.66, 0.33],
+        goldReward: 380,
+        uniqueReward: { type: "relic", itemId: "relic_penitent_sigil" }
+      }
+    };
+
+    function makeBoss(x, y, bossId = PRIMARY_BOSS_ID){
+      const def = BOSS_DEFS[bossId] || BOSS_DEFS[PRIMARY_BOSS_ID];
       return {
+        id: def.id,
+        name: def.name,
         x,
         y,
         w: 80,
@@ -2509,17 +2560,25 @@ import {
         vy: 0,
         face: -1,
         onGround: false,
-        hpMax: 900,
-        hp: 900,
+        hpMax: def.hpMax,
+        hp: def.hpMax,
         phase: 1,
         state: "idle", // idle, windup, attack, recovery, stagger, dead
         t: 0,
         attackType: null,
+        attackCooldown: 0,
+        slashCD: 0,
+        slamCD: 0,
+        leapCD: 0,
+        dashCD: 0,
         invulT: 0,
         staggerT: 0,
         staggerCooldown: 0,
-        poiseMax: 180,
-        poise: 180
+        poiseMax: def.poiseMax,
+        poise: def.poiseMax,
+        phaseThresholds: def.phaseThresholds,
+        goldReward: def.goldReward,
+        uniqueReward: def.uniqueReward
       };
     }
 
@@ -2528,20 +2587,22 @@ import {
     miniBossKnight.isMiniBoss = true;
     miniBossKnight.dropItem = { type: "weapon", itemId: "weapon_great_sword" };
 
-    const WORLD = { w: 10800, h: 1400 };
+    const WORLD = { w: 13000, h: 1400 };
     const ZONE_X = {
       gallery: 0,
       ruins: 2400,
       abyss: 4600,
       antechamber: 7200,
-      boss: 8800
+      boss: 8800,
+      foundry: 10800
     };
     const ZONE_W = {
       gallery: 2400,
       ruins: 2200,
       abyss: 2600,
       antechamber: 1600,
-      boss: 2000
+      boss: 2000,
+      foundry: 2200
     };
 
     // Zonas (metroidvania) com world rects.
@@ -2550,14 +2611,17 @@ import {
       { id: "ruins", name: "Ruínas", rect: { x: ZONE_X.ruins, y: 0, w: ZONE_W.ruins, h: WORLD.h } },
       { id: "abyss", name: "Abismo Silencioso", rect: { x: ZONE_X.abyss, y: 0, w: ZONE_W.abyss, h: WORLD.h } },
       { id: "antechamber", name: "Ante-câmara", rect: { x: ZONE_X.antechamber, y: 0, w: ZONE_W.antechamber, h: WORLD.h } },
-      { id: "boss", name: "Santuário do Penitente", rect: { x: ZONE_X.boss, y: 0, w: ZONE_W.boss, h: WORLD.h } }
+      { id: "boss", name: "Santuário do Penitente", rect: { x: ZONE_X.boss, y: 0, w: ZONE_W.boss, h: WORLD.h }, isBoss: true, bossId: PRIMARY_BOSS_ID },
+      { id: "foundry", name: "Forja Soterrada", rect: { x: ZONE_X.foundry, y: 0, w: ZONE_W.foundry, h: WORLD.h } }
     ];
+    const zoneMap = new Map(zones.map((zone) => [zone.id, zone]));
 
     const fogVolumes = [
       { id: "fog_gallery_ruins", x: ZONE_X.ruins - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
       { id: "fog_ruins_abyss", x: ZONE_X.abyss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
       { id: "fog_abyss_antechamber", x: ZONE_X.antechamber - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
-      { id: "fog_antechamber_boss", x: ZONE_X.boss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" }
+      { id: "fog_antechamber_boss", x: ZONE_X.boss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
+      { id: "fog_boss_foundry", x: ZONE_X.foundry - 220, y: 0, w: 220, h: WORLD.h, direction: "right" }
     ];
 
     const offsetList = (list, dx, dy = 0) => list.map((item) => ({ ...item, x: item.x + dx, y: item.y + dy }));
@@ -2757,7 +2821,47 @@ import {
           makeGate({ id: "boss_gate_left", type: "boss", x: ZONE_X.boss + 400, y: 560 - YSHIFT, w: 24, h: 220 }),
           makeGate({ id: "boss_gate_right", type: "boss", x: ZONE_X.boss + 400 + 1600 - 24, y: 560 - YSHIFT, w: 24, h: 220 })
         ],
-        boss: makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT)
+        boss: makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT, PRIMARY_BOSS_ID)
+      },
+      // FORJA: novas salas além do boss.
+      {
+        id: "foundry_entry",
+        zoneId: "foundry",
+        rect: { x: ZONE_X.foundry, y: 0, w: 1000, h: WORLD.h },
+        solids: offsetList([
+          { x: 0, y: 780 - YSHIFT, w: 2200, h: 120 },
+          { x: 260, y: 640 - YSHIFT, w: 260, h: 24 },
+          { x: 660, y: 580 - YSHIFT, w: 260, h: 24 }
+        ], ZONE_X.foundry),
+        enemies: offsetEnemies([
+          makeEnemy(320, 740, "knight"),
+          makeEnemy(740, 540 - YSHIFT, "hollow")
+        ], ZONE_X.foundry),
+        pickups: offsetList([
+          { id: "pickup_iron_shard_1", type: "material", itemId: "material_iron_shard", x: 520, y: 540 - YSHIFT }
+        ], ZONE_X.foundry)
+      },
+      {
+        id: "foundry_depths",
+        zoneId: "foundry",
+        rect: { x: ZONE_X.foundry + 1000, y: 0, w: 1200, h: WORLD.h },
+        solids: offsetList([
+          { x: 1000, y: 780 - YSHIFT, w: 1600, h: 120 },
+          { x: 1180, y: 680 - YSHIFT, w: 280, h: 24 },
+          { x: 1500, y: 600 - YSHIFT, w: 220, h: 24 },
+          { x: 1820, y: 520 - YSHIFT, w: 260, h: 24 }
+        ], ZONE_X.foundry),
+        bonfires: offsetList([
+          { id: "Forja", x: 1640, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 1600, spawnY: 740 - YSHIFT }
+        ], ZONE_X.foundry),
+        enemies: offsetEnemies([
+          makeEnemy(1240, 640 - YSHIFT, "hollow"),
+          makeEnemy(1640, 740, "knight"),
+          makeEnemy(1900, 480 - YSHIFT, "hollow")
+        ], ZONE_X.foundry),
+        pickups: offsetList([
+          { id: "pickup_armor_plate", type: "armor", itemId: "armor_plate", x: 1880, y: 480 - YSHIFT }
+        ], ZONE_X.foundry)
       }
     ];
 
@@ -3283,6 +3387,8 @@ import {
       visitedZones = new Set([currentZoneId]);
     }
     let boss = chunks.find((chunk) => chunk.boss)?.boss || null;
+    let bossActive = false;
+    let currentBossId = boss?.id || PRIMARY_BOSS_ID;
     let bossArenaLocked = false;
     const bossDefeatFlash = { t: 0, duration: 0.8 };
 
@@ -3329,29 +3435,71 @@ import {
       chunks.forEach((chunk) => resetChunkEnemies(chunk));
     };
 
-    const resetBoss = () => {
+    const isBossDefeated = (bossId) => Boolean(bossDefeated[bossId]);
+    const setBossDefeated = (bossId, value) => {
+      bossDefeated = { ...bossDefeated, [bossId]: value };
+      saveBossFlagMap(bossDefeatedKey, bossDefeated);
+    };
+    const isBossRewardClaimed = (bossId) => Boolean(bossRewardClaimed[bossId]);
+    const setBossRewardClaimed = (bossId, value) => {
+      bossRewardClaimed = { ...bossRewardClaimed, [bossId]: value };
+      saveBossFlagMap(bossRewardClaimedKey, bossRewardClaimed);
+    };
+
+    const resetBoss = (bossId = PRIMARY_BOSS_ID) => {
       const arena = chunks.find((chunk) => chunk.id === "boss_arena");
       if (!arena?.boss) return;
-      arena.boss = makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT);
+      arena.boss = makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT, bossId);
       boss = arena.boss;
     };
 
+    const triggerBossBarShake = () => {
+      if (!bossBar) return;
+      bossBar.classList.remove("shake");
+      void bossBar.offsetWidth;
+      bossBar.classList.add("shake");
+    };
+
+    const startBossEncounter = (bossId) => {
+      if (!bossId || isBossDefeated(bossId)) return;
+      currentBossId = bossId;
+      if (!boss || boss.id !== bossId) {
+        resetBoss(bossId);
+      }
+      bossActive = true;
+      bossArenaLocked = true;
+      if (bossName && boss) {
+        bossName.textContent = boss.name.toUpperCase();
+      }
+    };
+
+    const cancelBossEncounter = (bossId) => {
+      if (!bossId || isBossDefeated(bossId)) return;
+      bossActive = false;
+      bossArenaLocked = false;
+      resetBoss(bossId);
+      toast("O chefe retornou à arena.");
+    };
+
     const updateBossBar = () => {
-      const show = boss && boss.hp > 0 && !bossDefeated && bossArenaLocked;
+      const show = boss && boss.hp > 0 && bossActive && !isBossDefeated(boss.id);
       bossBar.classList.toggle("hidden", !show);
       if (show){
         bossHpFill.style.width = `${(boss.hp / boss.hpMax) * 100}%`;
+        if (bossName) {
+          bossName.textContent = boss.name.toUpperCase();
+        }
       }
     };
 
     const syncBossArenaState = () => {
       const arena = chunks.find((chunk) => chunk.id === "boss_arena");
       if (!arena?.boss) return;
-      if (bossDefeated){
+      if (isBossDefeated(arena.boss.id)){
         arena.boss.hp = 0;
         arena.boss.state = "dead";
         arena.bonfires?.forEach((b) => { b.locked = false; });
-        if (!bossRewardClaimed){
+        if (!isBossRewardClaimed(arena.boss.id)){
           const existingReward = arena.drops?.some((drop) => drop.isBossReward);
           if (!existingReward){
             createChunkDrop(arena, {
@@ -3361,6 +3509,18 @@ import {
               type: "material",
               itemId: "material_ashen_core",
               isBossReward: true
+            });
+          }
+        }
+        if (arena.boss.uniqueReward && !isItemInInventory(arena.boss.uniqueReward.itemId)) {
+          const existingUnique = arena.drops?.some((drop) => drop.id === "boss_unique_reward");
+          if (!existingUnique){
+            createChunkDrop(arena, {
+              id: "boss_unique_reward",
+              x: arena.boss.x + 28,
+              y: arena.boss.y + arena.boss.h - 18,
+              type: arena.boss.uniqueReward.type,
+              itemId: arena.boss.uniqueReward.itemId
             });
           }
         }
@@ -3381,6 +3541,16 @@ import {
         zoneText.textContent = zone.name;
         toast(`Zona: ${zone.name}`);
         updateReachQuests(zone.id);
+      }
+      if (zone?.isBoss && zone.bossId) {
+        if (isBossDefeated(zone.bossId)) {
+          bossActive = false;
+          bossArenaLocked = false;
+        } else {
+          startBossEncounter(zone.bossId);
+        }
+      } else if (bossActive) {
+        cancelBossEncounter(currentBossId);
       }
       if (zone && !visitedZones.has(zone.id)) {
         visitedZones.add(zone.id);
@@ -3413,7 +3583,10 @@ import {
           initChunk(chunk);
           activeChunks.add(chunk);
           if (chunk.enemies){
-            activeEnemies.push(...chunk.enemies);
+            const zone = zoneMap.get(chunk.zoneId);
+            if (!zone?.isBoss) {
+              activeEnemies.push(...chunk.enemies);
+            }
           }
           if (chunk.npcs) {
             activeNpcs.push(...chunk.npcs);
@@ -3443,6 +3616,30 @@ import {
       const magnitude = min + Math.random() * (max - min);
       cam.shakeTime = Math.max(cam.shakeTime, duration);
       cam.shakeMag = Math.max(cam.shakeMag, magnitude);
+    };
+
+    const playBossDefeatSfx = () => {
+      const AudioContextRef = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextRef) return;
+      if (!playBossDefeatSfx.ctx) {
+        playBossDefeatSfx.ctx = new AudioContextRef();
+      }
+      const ctx = playBossDefeatSfx.ctx;
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(240, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(120, ctx.currentTime + 0.25);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.45);
     };
 
     const spawnHitParticles = (x, y, options = {}) => {
@@ -3847,7 +4044,7 @@ import {
     async function restAtBonfire(){
       const {b, d} = nearestBonfire();
       if (!b || d > 70) { toast("Chegue mais perto da fogueira."); return; }
-      if (b.locked && !bossDefeated){
+      if (b.locked && !isBossDefeated(currentBossId)){
         toast("Esta fogueira está selada.");
         return;
       }
@@ -3895,9 +4092,11 @@ import {
   
       // reset enemies to spawn
       resetAllChunksEnemies();
-      if (!bossDefeated){
-        resetBoss();
+      if (!isBossDefeated(currentBossId)){
+        resetBoss(currentBossId);
       }
+      bossActive = false;
+      bossArenaLocked = false;
     }
   
     function tryPickupDeathDrop(){
@@ -3951,12 +4150,11 @@ import {
             if (!collected) continue;
             drop.active = false;
             if (drop.isBossReward){
-              if (!bossRewardClaimed){
+              if (!isBossRewardClaimed(currentBossId)){
                 player.estusBaseMax = (player.estusBaseMax || player.estusMax) + 1;
                 refreshEquipmentStats();
                 player.estus = player.estusMax;
-                bossRewardClaimed = true;
-                localStorage.setItem(bossRewardClaimedKey, "true");
+                setBossRewardClaimed(currentBossId, true);
                 toast("Núcleo cinerário absorvido. Estus máximo +1.");
               }
             }
@@ -4148,32 +4346,54 @@ import {
     }
 
     function bossTakeDamage(amount, knockX, poiseDamage = amount){
-      if (!boss || boss.invulT > 0 || boss.hp <= 0 || bossDefeated) return { hit: false, killed: false };
+      if (!boss || boss.invulT > 0 || boss.hp <= 0 || isBossDefeated(boss.id)) return { hit: false, killed: false };
       boss.hp -= amount;
       boss.invulT = 0.12;
       boss.vx += knockX * 0.2;
       boss.poise = Math.max(0, boss.poise - poiseDamage);
+      if (amount >= boss.hpMax * 0.08){
+        triggerBossBarShake();
+      }
       if (boss.hp <= 0){
         boss.hp = 0;
         boss.state = "dead";
-        bossDefeated = true;
-        localStorage.setItem(bossDefeatedKey, "true");
+        setBossDefeated(boss.id, true);
         bossDefeatFlash.t = bossDefeatFlash.duration;
+        bossActive = false;
         bossArenaLocked = false;
+        triggerShake(6, 12, 0.3);
+        playBossDefeatSfx();
         const arena = chunks.find((chunk) => chunk.id === "boss_arena");
         arena?.bonfires?.forEach((b) => { b.locked = false; });
-        if (!bossRewardClaimed){
-          createChunkDrop(arena, {
-            id: "boss_reward",
-            x: boss.x + boss.w / 2 - 12,
-            y: boss.y + boss.h - 18,
-            type: "material",
-            itemId: "material_ashen_core",
-            isBossReward: true
-          });
+        const rewardGold = boss.goldReward || 300;
+        gameState.gold += rewardGold;
+        if (arena){
+          const existingCore = arena.drops?.some((drop) => drop.isBossReward);
+          if (!existingCore){
+            createChunkDrop(arena, {
+              id: "boss_reward",
+              x: boss.x + boss.w / 2 - 12,
+              y: boss.y + boss.h - 18,
+              type: "material",
+              itemId: "material_ashen_core",
+              isBossReward: true
+            });
+          }
+          if (boss.uniqueReward && !isItemInInventory(boss.uniqueReward.itemId)) {
+            const existingUnique = arena.drops?.some((drop) => drop.id === "boss_unique_reward");
+            if (!existingUnique){
+              createChunkDrop(arena, {
+                id: "boss_unique_reward",
+                x: boss.x + boss.w / 2 + 18,
+                y: boss.y + boss.h - 18,
+                type: boss.uniqueReward.type,
+                itemId: boss.uniqueReward.itemId
+              });
+            }
+          }
         }
         updateBossBar();
-        toast("O Penitente de Ferro foi derrotado.");
+        toast(`Boss derrotado! Ouro +${rewardGold}.`);
         requestSave("boss");
         return { hit: true, killed: true };
       }
@@ -4187,16 +4407,26 @@ import {
     }
 
     function bossUpdate(dt){
-      if (!boss || bossDefeated) return;
+      if (!boss || !bossActive || isBossDefeated(boss.id)) return;
       if (boss.hp <= 0){
         boss.state = "dead";
       }
       boss.invulT = Math.max(0, boss.invulT - dt);
       boss.staggerCooldown = Math.max(0, boss.staggerCooldown - dt);
       boss.staggerT = Math.max(0, boss.staggerT - dt);
+      boss.attackCooldown = Math.max(0, boss.attackCooldown - dt);
+      boss.slashCD = Math.max(0, boss.slashCD - dt);
+      boss.slamCD = Math.max(0, boss.slamCD - dt);
+      boss.leapCD = Math.max(0, boss.leapCD - dt);
+      boss.dashCD = Math.max(0, boss.dashCD - dt);
 
-      if (boss.hp <= boss.hpMax * 0.5){
+      const hpRatio = boss.hp / boss.hpMax;
+      if (hpRatio <= boss.phaseThresholds[1]) {
+        boss.phase = 3;
+      } else if (hpRatio <= boss.phaseThresholds[0]) {
         boss.phase = 2;
+      } else {
+        boss.phase = 1;
       }
 
       const px = player.x + player.w / 2;
@@ -4221,42 +4451,64 @@ import {
         return;
       }
 
-      const phaseSpeed = boss.phase === 2 ? 1.15 : 1;
+      const phaseSpeed = boss.phase === 3 ? 1.28 : boss.phase === 2 ? 1.15 : 1;
       if (boss.state === "idle"){
-        if (Math.abs(dist) > 120){
-          boss.vx = lerp(boss.vx, 120 * boss.face, 0.08 * phaseSpeed);
+        if (Math.abs(dist) > 220){
+          boss.vx = lerp(boss.vx, 130 * boss.face, 0.08 * phaseSpeed);
         } else {
           boss.vx *= 0.85;
         }
 
-        if (Math.abs(dist) < 220 && boss.onGround){
-          const roll = Math.random();
-          if (boss.phase === 1){
-            boss.attackType = roll < 0.6 ? "slash" : "slam";
-          } else {
-            boss.attackType = roll < 0.5 ? "slash" : (roll < 0.8 ? "slam" : "jump");
+        if (Math.abs(dist) < 260 && boss.onGround && boss.attackCooldown <= 0){
+          const options = [];
+          if (boss.slashCD <= 0) options.push({ type: "slash", weight: 4 });
+          if (boss.slamCD <= 0) options.push({ type: "slam", weight: 3 });
+          if (boss.leapCD <= 0) options.push({ type: "jump", weight: boss.phase >= 2 ? 3 : 2 });
+          if (boss.phase >= 2 && boss.dashCD <= 0) options.push({ type: "dash", weight: boss.phase === 3 ? 4 : 2 });
+          if (options.length){
+            let total = 0;
+            options.forEach((opt) => { total += opt.weight; });
+            let roll = Math.random() * total;
+            let choice = options[0].type;
+            for (const opt of options){
+              roll -= opt.weight;
+              if (roll <= 0){
+                choice = opt.type;
+                break;
+              }
+            }
+            boss.attackType = choice;
+            boss.state = "windup";
+            const windupBase = boss.attackType === "slam" ? 0.42 : boss.attackType === "dash" ? 0.28 : 0.32;
+            boss.t = randRange(windupBase * 0.85, windupBase * 1.2) / phaseSpeed;
+            boss.vx *= 0.4;
+            boss.attackHit = false;
+            boss.wasAirborne = false;
+            boss.attackCooldown = randRange(0.55, 0.95) / phaseSpeed;
+            if (boss.attackType === "slash") boss.slashCD = randRange(0.7, 1.1);
+            if (boss.attackType === "slam") boss.slamCD = randRange(1.1, 1.6);
+            if (boss.attackType === "jump") boss.leapCD = randRange(1.4, 1.9);
+            if (boss.attackType === "dash") boss.dashCD = randRange(1.6, 2.2);
           }
-          boss.state = "windup";
-          boss.t = boss.attackType === "slam" ? 0.4 / phaseSpeed : 0.3 / phaseSpeed;
-          boss.vx *= 0.4;
-          boss.attackHit = false;
-          boss.wasAirborne = false;
         }
       } else if (boss.state === "windup"){
         boss.vx *= 0.8;
         boss.t = Math.max(0, boss.t - dt);
         if (boss.t <= 0){
           boss.state = "attack";
-          boss.t = boss.attackType === "jump" ? 0.9 : 0.25;
+          boss.t = boss.attackType === "jump" ? 1.0 : boss.attackType === "dash" ? 0.35 : 0.28;
           if (boss.attackType === "jump"){
-            boss.vy = -760;
-            boss.vx = boss.face * 220;
+            boss.vy = -780;
+            boss.vx = boss.face * 240;
             boss.wasAirborne = true;
+          }
+          if (boss.attackType === "dash"){
+            boss.vx = boss.face * 420;
           }
         }
       } else if (boss.state === "attack"){
         if (boss.attackType === "slash"){
-          boss.vx = lerp(boss.vx, boss.face * 260, 0.18 * phaseSpeed);
+          boss.vx = lerp(boss.vx, boss.face * 270, 0.18 * phaseSpeed);
           const hb = {
             x: boss.x + (boss.face === 1 ? boss.w - 10 : -50),
             y: boss.y + 24,
@@ -4265,7 +4517,7 @@ import {
           };
           if (!boss.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
             boss.attackHit = true;
-            playerTakeDamage(boss.phase === 2 ? 38 : 30, boss.x, boss);
+            playerTakeDamage(boss.phase >= 2 ? 38 : 30, boss.x, boss);
             triggerShake(6, 8, 0.14);
           }
         } else if (boss.attackType === "slam"){
@@ -4278,7 +4530,7 @@ import {
           };
           if (!boss.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
             boss.attackHit = true;
-            playerTakeDamage(boss.phase === 2 ? 42 : 34, boss.x, boss);
+            playerTakeDamage(boss.phase === 3 ? 48 : boss.phase === 2 ? 42 : 34, boss.x, boss);
             triggerShake(8, 10, 0.18);
           }
         } else if (boss.attackType === "jump"){
@@ -4291,16 +4543,28 @@ import {
               h: 40
             };
             if (rectsOverlap(getPlayerHitbox(), hb)){
-              playerTakeDamage(48, boss.x, boss);
+              playerTakeDamage(boss.phase === 3 ? 54 : 48, boss.x, boss);
             }
             triggerShake(10, 12, 0.22);
             boss.wasAirborne = false;
+          }
+        } else if (boss.attackType === "dash"){
+          boss.vx = lerp(boss.vx, boss.face * 420, 0.22 * phaseSpeed);
+          const hb = {
+            x: boss.x + (boss.face === 1 ? boss.w - 8 : -70),
+            y: boss.y + 18,
+            w: 78,
+            h: 44
+          };
+          if (!boss.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
+            boss.attackHit = true;
+            playerTakeDamage(boss.phase === 3 ? 44 : 36, boss.x, boss);
           }
         }
         boss.t = Math.max(0, boss.t - dt);
         if (boss.t <= 0){
           boss.state = "recovery";
-          boss.t = boss.phase === 2 ? 0.5 : 0.7;
+          boss.t = randRange(boss.phase === 3 ? 0.35 : 0.45, boss.phase === 1 ? 0.8 : 0.6);
         }
       } else if (boss.state === "recovery"){
         boss.vx *= 0.85;
@@ -4330,8 +4594,8 @@ import {
         saveCollectedPickups(collectedPickups);
         defeatedMiniBosses.clear();
         saveMiniBosses(defeatedMiniBosses);
-        bossDefeated = false;
-        bossRewardClaimed = false;
+        bossDefeated = {};
+        bossRewardClaimed = {};
         localStorage.removeItem(bossDefeatedKey);
         localStorage.removeItem(bossRewardClaimedKey);
         gameState = createDefaultGameState();
@@ -4350,8 +4614,11 @@ import {
         if (chunk.drops) chunk.drops.length = 0;
       });
       doorFlags.hub_shortcut = false;
-      if (!bossDefeated){
-        resetBoss();
+      bossActive = false;
+      bossArenaLocked = false;
+      currentBossId = PRIMARY_BOSS_ID;
+      if (!isBossDefeated(currentBossId)){
+        resetBoss(currentBossId);
       }
       player.x = ZONE_X.ruins + 180;
       player.y = 740 - YSHIFT;
@@ -4404,12 +4671,11 @@ import {
       updateActiveChunks();
       updateZoneState();
       syncBossArenaState();
-      const bossArena = chunks.find((chunk) => chunk.id === "boss_arena");
-      const inBossArena = bossArena && rectsOverlap(
-        { x: player.x, y: player.y, w: player.w, h: player.h },
-        bossArena.rect
-      );
-      bossArenaLocked = Boolean(boss && !bossDefeated && inBossArena);
+      if (boss && bossActive && !isBossDefeated(boss.id)) {
+        bossArenaLocked = true;
+      } else {
+        bossArenaLocked = false;
+      }
 
       for (let i = hitParticles.length - 1; i >= 0; i--){
         const p = hitParticles[i];
@@ -4655,7 +4921,7 @@ import {
       // Update enemies
       for (const e of activeEnemies) enemyUpdate(e, dt);
 
-      if (boss && (bossArenaLocked || rectsOverlap({ x: player.x, y: player.y, w: player.w, h: player.h }, { x: boss.x - 480, y: boss.y - 240, w: 960, h: 480 }))){
+      if (bossActive) {
         bossUpdate(dt);
       }
       updateBossBar();
@@ -4747,7 +5013,7 @@ import {
   
       // Bonfires
       for (const b of level.bonfires){
-        const locked = b.locked && !bossDefeated;
+        const locked = b.locked && !isBossDefeated(currentBossId);
         ctx.globalAlpha = locked ? 0.35 : 1;
         // flame
         ctx.fillStyle = "rgba(255,170,80,.9)";
@@ -4874,7 +5140,7 @@ import {
         }
       }
 
-      if (boss && boss.hp > 0 && !bossDefeated){
+      if (boss && boss.hp > 0 && !isBossDefeated(boss.id)){
         ctx.globalAlpha = 0.3;
         ctx.fillStyle = "#000";
         ctx.beginPath();
@@ -4940,7 +5206,7 @@ import {
       if (nb.b && nb.d < 80){
         ctx.fillStyle = "rgba(255,255,255,.85)";
         ctx.font = "14px ui-sans-serif, system-ui, Arial";
-        const hint = nb.b.locked && !bossDefeated ? "Fogueira selada" : "Pressione E para descansar";
+        const hint = nb.b.locked && !isBossDefeated(currentBossId) ? "Fogueira selada" : "Pressione E para descansar";
         ctx.fillText(hint, nb.b.x - 40 + ox, nb.b.y - 10 + oy);
       }
 
