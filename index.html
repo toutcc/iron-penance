@@ -43,38 +43,75 @@
     </div>
   </div>
 
-  <div class="inventory-screen hidden" id="inventoryScreen" aria-hidden="true">
+  <div class="inventory-overlay hidden" id="inventoryOverlay" aria-hidden="true">
     <div class="inventory-panel" role="dialog" aria-labelledby="inventoryTitle">
       <header class="inventory-header">
         <div>
           <p class="inventory-kicker">Inventário</p>
-          <h2 id="inventoryTitle">EQUIPAMENTO</h2>
+          <h2 id="inventoryTitle">EQUIPAMENTO & ITENS</h2>
         </div>
-        <div class="inventory-weight" id="inventoryWeight">Peso 0/0</div>
+        <div class="inventory-header-actions">
+          <div class="inventory-weight" id="inventoryWeight">Peso 0/0</div>
+          <div class="inventory-buttons">
+            <button class="inventory-btn" id="inventorySort" type="button">Ordenar</button>
+            <button class="inventory-btn" id="inventoryClose" type="button">Fechar (TAB/ESC)</button>
+          </div>
+        </div>
       </header>
-      <div class="inventory-body">
-        <ul class="inventory-slots" id="inventorySlots">
-          <li class="inventory-slot" data-slot="weapon">
-            <span class="slot-label">Arma</span>
-            <span class="slot-value" id="slotWeapon">—</span>
-          </li>
-          <li class="inventory-slot" data-slot="armor">
-            <span class="slot-label">Armadura</span>
-            <span class="slot-value" id="slotArmor">—</span>
-          </li>
-          <li class="inventory-slot" data-slot="relic">
-            <span class="slot-label">Relíquia</span>
-            <span class="slot-value" id="slotRelic">—</span>
-          </li>
-          <li class="inventory-slot" data-slot="consumable">
-            <span class="slot-label">Consumível</span>
-            <span class="slot-value" id="slotConsumable">—</span>
-          </li>
-        </ul>
-        <div class="inventory-details" id="inventoryDetails"></div>
+      <div class="inventory-content">
+        <section class="inventory-grid-panel">
+          <div class="inventory-grid" id="inventoryGrid">
+            <div class="inventory-grid-slot" data-index="0"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="1"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="2"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="3"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="4"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="5"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="6"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="7"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="8"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="9"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="10"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="11"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="12"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="13"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="14"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="15"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="16"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="17"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="18"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="19"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="20"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="21"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="22"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+            <div class="inventory-grid-slot" data-index="23"><span class="slot-icon"></span><span class="slot-qty"></span></div>
+          </div>
+          <div class="inventory-hint">Arraste itens • Clique direito para equipar • Shift + clique para mover rápido</div>
+        </section>
+        <aside class="inventory-side">
+          <div class="equipment-panel">
+            <div class="equipment-slot" data-equip="weapon">
+              <span class="slot-label">Arma</span>
+              <div class="slot-item"></div>
+            </div>
+            <div class="equipment-slot" data-equip="armor">
+              <span class="slot-label">Armadura</span>
+              <div class="slot-item"></div>
+            </div>
+            <div class="equipment-slot" data-equip="relic1">
+              <span class="slot-label">Relíquia I</span>
+              <div class="slot-item"></div>
+            </div>
+            <div class="equipment-slot" data-equip="relic2">
+              <span class="slot-label">Relíquia II</span>
+              <div class="slot-item"></div>
+            </div>
+          </div>
+          <div class="inventory-tooltip" id="inventoryTooltip">Passe o cursor sobre um item para ver detalhes.</div>
+        </aside>
       </div>
-      <div class="inventory-hint">↑ ↓ navegar • Enter equipar • Clique para detalhes • Esc sair</div>
     </div>
+    <div class="inventory-drag-ghost hidden" id="inventoryDragGhost" aria-hidden="true"></div>
   </div>
 
   <div class="quest-overlay hidden" id="questOverlay" aria-hidden="true">
