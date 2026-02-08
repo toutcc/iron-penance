@@ -39,6 +39,7 @@ import {
   const stText = document.getElementById("stText");
   const soulsText = document.getElementById("soulsText");
   const cpText = document.getElementById("cpText");
+  const zoneText = document.getElementById("zoneText");
   const fpsText = document.getElementById("fpsText");
   const estusText = document.getElementById("estusText");
   const toastEl = document.getElementById("toast");
@@ -377,7 +378,6 @@ import {
   const buildSaveData = () => ({
     version: SAVE_VERSION,
     checkpoint: player.checkpoint ? { ...player.checkpoint } : null,
-    roomId: currentRoomId,
     player: {
       hp: player.hp,
       hpMax: player.hpMax,
@@ -387,9 +387,11 @@ import {
       y: player.y
     },
     souls: player.souls,
+    lastBonfireId: player.checkpoint?.id || null,
+    abilities: { ...player.abilities },
     flags: {
       bossDefeated,
-      doorsOpened: [],
+      doorFlags: { ...doorFlags },
       pickupsCollected: [...collectedPickups],
       miniBossesDefeated: [...defeatedMiniBosses]
     },
@@ -503,9 +505,19 @@ import {
     if (savedCheckpoint) {
       player.checkpoint = { ...player.checkpoint, ...savedCheckpoint };
     }
+    if (data.abilities) {
+      player.abilities = {
+        dash: Boolean(data.abilities.dash),
+        wallJump: Boolean(data.abilities.wallJump),
+        pogo: Boolean(data.abilities.pogo)
+      };
+    }
     if (data.flags) {
       bossDefeated = Boolean(data.flags.bossDefeated);
       localStorage.setItem(bossDefeatedKey, bossDefeated ? "true" : "false");
+      if (data.flags.doorFlags) {
+        Object.assign(doorFlags, data.flags.doorFlags);
+      }
       if (Array.isArray(data.flags.pickupsCollected)) {
         collectedPickups.clear();
         data.flags.pickupsCollected.forEach((id) => collectedPickups.add(id));
@@ -517,14 +529,8 @@ import {
         saveMiniBosses(defeatedMiniBosses);
       }
     }
-    suppressAutoSave = true;
-    if (player.checkpoint?.roomId) {
-      const spawnX = Number.isFinite(player.checkpoint.x) ? player.checkpoint.x : player.x;
-      const spawnY = Number.isFinite(player.checkpoint.y) ? player.checkpoint.y : player.y;
-      loadRoom(player.checkpoint.roomId, { spawn: { x: spawnX, y: spawnY } });
-      cpText.textContent = player.checkpoint.id || "—";
-    }
-    suppressAutoSave = false;
+    cpText.textContent = player.checkpoint?.id || "—";
+    updateZoneState();
     refreshEquipmentStats();
     return true;
   };
@@ -671,7 +677,7 @@ import {
       const meta = slot.querySelector(".slot-meta");
       if (data) {
         const checkpoint = data.checkpoint || data.player?.checkpoint;
-        const location = checkpoint?.id || checkpoint?.roomId || "Ruínas";
+        const location = checkpoint?.id || checkpoint?.zoneId || "Ruínas";
         const souls = Number.isFinite(data.souls)
           ? data.souls
           : Number.isFinite(data.player?.souls)
@@ -1444,6 +1450,11 @@ import {
       let left = false;
       let right = false;
       for (const s of level.solids){
+        if (s.gate){
+          if (s.type === "dash" && ent === player && player.abilities.dash && player.dashT > 0) continue;
+          if (s.type === "door" && doorFlags[s.id]) continue;
+          if (s.type === "boss" && !bossArenaLocked) continue;
+        }
         if (!left && rectsOverlap(probeLeft, s)) left = true;
         if (!right && rectsOverlap(probeRight, s)) right = true;
         if (left && right) break;
@@ -1679,10 +1690,15 @@ import {
         jumpHoldTimer: 0,
         jumpHeldPrev: false,
         wallJumpUnlocked: false,
+        abilities: {
+          dash: false,
+          wallJump: false,
+          pogo: false
+        },
   
         souls: 0,
         deathDrop: null, // {x,y,amount,active}
-        checkpoint: {id:"Ruínas", x: 140, y: 740 - YSHIFT, roomId: "ruins_start"},
+        checkpoint: {id:"Ruínas", x: 2580, y: 740 - YSHIFT, zoneId: "ruins"},
       };
     }
   
@@ -1744,158 +1760,241 @@ import {
     miniBossKnight.isMiniBoss = true;
     miniBossKnight.dropItem = { type: "weapon", itemId: "heavy_sword" };
 
-    const rooms = {
-      ruins_start: {
-        id: "ruins_start",
-        name: "Ruínas",
-        w: 2000,
-        h: 900,
-        bounds: { left: 0, right: 2000 },
-        spawn: { x: 120, y: 740 - YSHIFT },
-        entries: {
-          left: { x: 120, y: 740 - YSHIFT },
-          right: { x: 80, y: 740 - YSHIFT }
-        },
-        solids: [
+    const WORLD = { w: 10800, h: 1400 };
+    const ZONE_X = {
+      gallery: 0,
+      ruins: 2400,
+      abyss: 4600,
+      antechamber: 7200,
+      boss: 8800
+    };
+    const ZONE_W = {
+      gallery: 2400,
+      ruins: 2200,
+      abyss: 2600,
+      antechamber: 1600,
+      boss: 2000
+    };
+
+    // Zonas (metroidvania) com world rects.
+    const zones = [
+      { id: "gallery", name: "Galeria Quebrada", rect: { x: ZONE_X.gallery, y: 0, w: ZONE_W.gallery, h: WORLD.h } },
+      { id: "ruins", name: "Ruínas", rect: { x: ZONE_X.ruins, y: 0, w: ZONE_W.ruins, h: WORLD.h } },
+      { id: "abyss", name: "Abismo Silencioso", rect: { x: ZONE_X.abyss, y: 0, w: ZONE_W.abyss, h: WORLD.h } },
+      { id: "antechamber", name: "Ante-câmara", rect: { x: ZONE_X.antechamber, y: 0, w: ZONE_W.antechamber, h: WORLD.h } },
+      { id: "boss", name: "Santuário do Penitente", rect: { x: ZONE_X.boss, y: 0, w: ZONE_W.boss, h: WORLD.h } }
+    ];
+
+    const offsetList = (list, dx, dy = 0) => list.map((item) => ({ ...item, x: item.x + dx, y: item.y + dy }));
+    const offsetEnemies = (list, dx, dy = 0) => list.map((enemy) => {
+      enemy.x += dx;
+      enemy.y += dy;
+      return enemy;
+    });
+    const makeGate = (gate) => ({ ...gate, gate: true });
+
+    const chunks = [
+      // GALERIA: entrada + loop superior (atalho de volta ao hub).
+      {
+        id: "gallery_entry",
+        zoneId: "gallery",
+        rect: { x: ZONE_X.gallery, y: 0, w: 1400, h: WORLD.h },
+        solids: offsetList([
+          { x: 0, y: 780 - YSHIFT, w: 2200, h: 120 },
+          { x: 260, y: 660 - YSHIFT, w: 320, h: 24 },
+          { x: 720, y: 600 - YSHIFT, w: 280, h: 24 },
+          { x: 1100, y: 520 - YSHIFT, w: 260, h: 24 }
+        ], ZONE_X.gallery),
+        enemies: offsetEnemies([
+          makeEnemy(520, 740, "hollow"),
+          makeEnemy(980, 700 - YSHIFT, "hollow")
+        ], ZONE_X.gallery),
+        pickups: offsetList([
+          { id: "pickup_dash_core", type: "ability", abilityId: "dash", x: 760, y: 560 - YSHIFT }
+        ], ZONE_X.gallery)
+      },
+      {
+        id: "gallery_loop",
+        zoneId: "gallery",
+        rect: { x: ZONE_X.gallery + 1400, y: 0, w: 1000, h: WORLD.h },
+        solids: offsetList([
+          { x: 1500, y: 660 - YSHIFT, w: 280, h: 24 },
+          { x: 1800, y: 560 - YSHIFT, w: 240, h: 24 },
+          { x: 1700, y: 460 - YSHIFT, w: 200, h: 24 },
+          { x: 1880, y: 380 - YSHIFT, w: 200, h: 24 },
+          { x: 2100, y: 380 - YSHIFT, w: 260, h: 24 }
+        ], ZONE_X.gallery),
+        enemies: offsetEnemies([
+          miniBossKnight,
+          makeEnemy(1860, 520 - YSHIFT, "hollow")
+        ], ZONE_X.gallery),
+        gates: [
+          // Atalho persistente: abre pelo lado da galeria e retorna ao hub.
+          makeGate({ id: "hub_shortcut", type: "door", x: ZONE_X.ruins - 32, y: 380 - YSHIFT, w: 32, h: 120, openFrom: "left" })
+        ]
+      },
+      // RUÍNAS: HUB com duas saídas, loop e checkpoint.
+      {
+        id: "ruins_core",
+        zoneId: "ruins",
+        rect: { x: ZONE_X.ruins, y: 0, w: 1600, h: WORLD.h },
+        solids: offsetList([
           { x: 0, y: 780 - YSHIFT, w: 2000, h: 120 },
           { x: 240, y: 640 - YSHIFT, w: 420, h: 24 },
           { x: 820, y: 560 - YSHIFT, w: 340, h: 24 },
+          { x: 60, y: 380 - YSHIFT, w: 260, h: 24 },
           { x: 680, y: 740, w: 80, h: 40 },
           { x: 760, y: 720, w: 80, h: 60 },
           { x: 840, y: 700, w: 80, h: 80 },
           { x: 1180, y: 650, w: 40, h: 130 },
-        ],
-        bonfires: [
-          { id: "Ruínas", x: 180, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 140, spawnY: 740 - YSHIFT },
-        ],
-        enemies: [
+          // Gargalo para a galeria (porta/corredor estreito).
+          { x: -20, y: 520 - YSHIFT, w: 20, h: 260 }
+        ], ZONE_X.ruins),
+        bonfires: offsetList([
+          { id: "Ruínas", x: 180, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 140, spawnY: 740 - YSHIFT }
+        ], ZONE_X.ruins),
+        enemies: offsetEnemies([
           makeEnemy(520, 740, "hollow"),
-          makeEnemy(980, 520, "hollow"),
-          makeEnemy(1480, 740, "knight"),
-        ],
-        pickups: [
-          { id: "pickup_long_sword", type: "weapon", itemId: "long_sword", x: 620, y: 700 - YSHIFT },
-        ],
-        neighbors: { right: "broken_gallery" }
+          makeEnemy(980, 520, "hollow")
+        ], ZONE_X.ruins),
+        pickups: offsetList([
+          { id: "pickup_long_sword", type: "weapon", itemId: "long_sword", x: 620, y: 700 - YSHIFT }
+        ], ZONE_X.ruins)
       },
-      broken_gallery: {
-        id: "broken_gallery",
-        name: "Galeria Quebrada",
-        w: 2200,
-        h: 900,
-        bounds: { left: 0, right: 2200 },
-        spawn: { x: 120, y: 740 - YSHIFT },
-        entries: {
-          left: { x: 160, y: 740 - YSHIFT },
-          right: { x: 80, y: 700 - YSHIFT }
-        },
-        solids: [
-          { x: 0, y: 780 - YSHIFT, w: 2200, h: 120 },
-          { x: 260, y: 660 - YSHIFT, w: 320, h: 24 },
-          { x: 720, y: 600 - YSHIFT, w: 280, h: 24 },
-          { x: 1100, y: 520 - YSHIFT, w: 260, h: 24 },
-          { x: 1500, y: 660 - YSHIFT, w: 280, h: 24 },
-          { x: 1800, y: 560 - YSHIFT, w: 240, h: 24 },
-        ],
-        bonfires: [
-          { id: "Galeria", x: 1120, y: 622 - YSHIFT, w: 26, h: 38, spawnX: 1080, spawnY: 740 - YSHIFT },
-        ],
-        enemies: [
-          makeEnemy(520, 740, "hollow"),
-          makeEnemy(980, 700 - YSHIFT, "hollow"),
-          miniBossKnight,
-          makeEnemy(1860, 520 - YSHIFT, "hollow"),
-        ],
-        neighbors: { left: "ruins_start", right: "silent_abyss" }
+      {
+        id: "ruins_upper",
+        zoneId: "ruins",
+        rect: { x: ZONE_X.ruins + 1600, y: 0, w: 600, h: WORLD.h },
+        solids: offsetList([
+          { x: 1600, y: 780 - YSHIFT, w: 600, h: 120 },
+          { x: 1260, y: 520 - YSHIFT, w: 200, h: 24 },
+          { x: 1480, y: 440 - YSHIFT, w: 200, h: 24 },
+          { x: 1680, y: 360 - YSHIFT, w: 200, h: 24 },
+          // Corredor estreito para a saída leste (gargalo).
+          { x: 1900, y: 700 - YSHIFT, w: 260, h: 20 }
+        ], ZONE_X.ruins),
+        gates: [
+          // Gate de dash: só atravessa quando o dash está ativo.
+          makeGate({ id: "dash_gate", type: "dash", x: ZONE_X.abyss - 40, y: 700 - YSHIFT, w: 40, h: 80 })
+        ]
       },
-      silent_abyss: {
-        id: "silent_abyss",
-        name: "Abismo Silencioso",
-        w: 2300,
-        h: 900,
-        bounds: { left: 0, right: 2300 },
-        spawn: { x: 140, y: 700 - YSHIFT },
-        entries: {
-          left: { x: 160, y: 700 - YSHIFT },
-          right: { x: 100, y: 620 - YSHIFT }
-        },
-        solids: [
-          { x: 0, y: 780 - YSHIFT, w: 460, h: 120 },
+      // ABISMO: poço profundo + seção vertical com wall jump.
+      {
+        id: "abyss_pit",
+        zoneId: "abyss",
+        rect: { x: ZONE_X.abyss, y: 0, w: 1500, h: WORLD.h },
+        solids: offsetList([
+          { x: 0, y: 780 - YSHIFT, w: 420, h: 120 },
           { x: 520, y: 620 - YSHIFT, w: 260, h: 24 },
           { x: 860, y: 540 - YSHIFT, w: 220, h: 24 },
-          { x: 1180, y: 460 - YSHIFT, w: 260, h: 24 },
+          { x: 1180, y: 460 - YSHIFT, w: 260, h: 24 }
+        ], ZONE_X.abyss),
+        enemies: offsetEnemies([
+          makeEnemy(540, 580 - YSHIFT, "hollow")
+        ], ZONE_X.abyss),
+        pickups: offsetList([
+          { id: "pickup_medium_armor", type: "armor", itemId: "medium_armor", x: 880, y: 500 - YSHIFT }
+        ], ZONE_X.abyss),
+        voidKill: true,
+        voidY: 980 - YSHIFT
+      },
+      {
+        id: "abyss_vertical",
+        zoneId: "abyss",
+        rect: { x: ZONE_X.abyss + 1500, y: 0, w: 1100, h: WORLD.h },
+        solids: offsetList([
           { x: 1540, y: 540 - YSHIFT, w: 220, h: 24 },
           { x: 1840, y: 620 - YSHIFT, w: 260, h: 24 },
           { x: 2100, y: 780 - YSHIFT, w: 200, h: 120 },
-        ],
-        bonfires: [
-          { id: "Abismo", x: 210, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 170, spawnY: 740 - YSHIFT },
-        ],
-        enemies: [
-          makeEnemy(540, 580 - YSHIFT, "hollow"),
-          makeEnemy(1500, 500 - YSHIFT, "knight"),
-        ],
-        pickups: [
-          { id: "pickup_medium_armor", type: "armor", itemId: "medium_armor", x: 880, y: 500 - YSHIFT },
-        ],
-        neighbors: { left: "broken_gallery", right: "antechamber" },
-        voidKill: true,
-        voidY: 720 - YSHIFT + 240
+          // Parede alta: exige WALL JUMP.
+          { x: 1980, y: 360 - YSHIFT, w: 40, h: 320 }
+        ], ZONE_X.abyss),
+        enemies: offsetEnemies([
+          makeEnemy(1500, 500 - YSHIFT, "knight")
+        ], ZONE_X.abyss),
+        pickups: offsetList([
+          { id: "pickup_wall_jump", type: "ability", abilityId: "wallJump", x: 1760, y: 580 - YSHIFT }
+        ], ZONE_X.abyss)
       },
-      antechamber: {
-        id: "antechamber",
-        name: "Ante-câmara",
-        w: 1600,
-        h: 900,
-        bounds: { left: 0, right: 1600 },
-        spawn: { x: 140, y: 740 - YSHIFT },
-        entries: {
-          left: { x: 160, y: 740 - YSHIFT },
-          right: { x: 120, y: 740 - YSHIFT }
-        },
-        solids: [
+      // ANTE-CÂMARA: preparação e POGO.
+      {
+        id: "antechamber_entry",
+        zoneId: "antechamber",
+        rect: { x: ZONE_X.antechamber, y: 0, w: 800, h: WORLD.h },
+        solids: offsetList([
           { x: 0, y: 780 - YSHIFT, w: 1600, h: 120 },
-          { x: 460, y: 640 - YSHIFT, w: 280, h: 24 },
-          { x: 900, y: 640 - YSHIFT, w: 280, h: 24 },
-        ],
-        bonfires: [
-          { id: "Ante-câmara", x: 760, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 720, spawnY: 740 - YSHIFT },
-        ],
-        enemies: [],
-        pickups: [
-          { id: "pickup_heavy_armor", type: "armor", itemId: "heavy_armor", x: 980, y: 700 - YSHIFT },
-        ],
-        neighbors: { left: "silent_abyss", right: "boss_arena" },
-        message: "Uma presença opressora aguarda…"
+          { x: 460, y: 640 - YSHIFT, w: 280, h: 24 }
+        ], ZONE_X.antechamber),
+        bonfires: offsetList([
+          { id: "Ante-câmara", x: 760, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 720, spawnY: 740 - YSHIFT }
+        ], ZONE_X.antechamber),
+        pickups: offsetList([
+          { id: "pickup_pogo_core", type: "ability", abilityId: "pogo", x: 520, y: 600 - YSHIFT }
+        ], ZONE_X.antechamber)
       },
-      boss_arena: {
+      {
+        id: "antechamber_gate",
+        zoneId: "antechamber",
+        rect: { x: ZONE_X.antechamber + 800, y: 0, w: 800, h: WORLD.h },
+        solids: offsetList([
+          { x: 900, y: 640 - YSHIFT, w: 280, h: 24 }
+        ], ZONE_X.antechamber),
+        spikes: offsetList([
+          // Espinhos: só atravessa com POGO.
+          { x: 1020, y: 760 - YSHIFT, w: 240, h: 20 }
+        ], ZONE_X.antechamber),
+        pickups: offsetList([
+          { id: "pickup_heavy_armor", type: "armor", itemId: "heavy_armor", x: 980, y: 700 - YSHIFT }
+        ], ZONE_X.antechamber)
+      },
+      // BOSS: aproximação e arena.
+      {
+        id: "boss_approach",
+        zoneId: "boss",
+        rect: { x: ZONE_X.boss, y: 0, w: 400, h: WORLD.h },
+        solids: offsetList([
+          { x: 0, y: 780 - YSHIFT, w: ZONE_W.boss, h: 120 }
+        ], ZONE_X.boss)
+      },
+      {
         id: "boss_arena",
-        name: "Arena",
-        w: 2000,
-        h: 900,
-        bounds: { left: 0, right: 2000 },
-        spawn: { x: 140, y: 740 - YSHIFT },
-        entries: {
-          left: { x: 160, y: 740 - YSHIFT },
-          right: { x: 120, y: 740 - YSHIFT }
-        },
-        solids: [
-          { x: 0, y: 780 - YSHIFT, w: 2000, h: 120 },
+        zoneId: "boss",
+        rect: { x: ZONE_X.boss + 400, y: 0, w: 1600, h: WORLD.h },
+        solids: offsetList([
           { x: 320, y: 640 - YSHIFT, w: 260, h: 24 },
           { x: 1420, y: 640 - YSHIFT, w: 260, h: 24 },
-          { x: 900, y: 560 - YSHIFT, w: 200, h: 24 },
+          { x: 900, y: 560 - YSHIFT, w: 200, h: 24 }
+        ], ZONE_X.boss + 400),
+        bonfires: offsetList([
+          { id: "Arena", x: 960, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 920, spawnY: 740 - YSHIFT, locked: true }
+        ], ZONE_X.boss + 400),
+        gates: [
+          makeGate({ id: "boss_gate_left", type: "boss", x: ZONE_X.boss + 400, y: 560 - YSHIFT, w: 24, h: 220 }),
+          makeGate({ id: "boss_gate_right", type: "boss", x: ZONE_X.boss + 400 + 1600 - 24, y: 560 - YSHIFT, w: 24, h: 220 })
         ],
-        bonfires: [
-          { id: "Arena", x: 960, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 920, spawnY: 740 - YSHIFT, locked: true },
-        ],
-        enemies: [],
-        neighbors: { left: "antechamber" },
-        boss: makeBoss(1200, 670 - YSHIFT)
+        boss: makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT)
       }
-    };
+    ];
 
     const player = makePlayer();
-    let enemies = [];
+    const worldGates = chunks.flatMap((chunk) => chunk.gates || []);
+    const worldSpikes = chunks.flatMap((chunk) => chunk.spikes || []);
+    const worldBonfires = chunks.flatMap((chunk) => chunk.bonfires || []);
+    const worldSolids = [
+      ...chunks.flatMap((chunk) => chunk.solids || []),
+      ...worldGates
+    ];
+
+    level.w = WORLD.w;
+    level.h = WORLD.h;
+    level.solids = worldSolids;
+    level.bonfires = worldBonfires;
+
+    let activeEnemies = [];
+    const activeChunks = new Set();
+    const doorFlags = {
+      hub_shortcut: false
+    };
 
     // ===== Inventory State =====
     const defaultInventoryState = () => ({
@@ -2081,37 +2180,39 @@ import {
     loadInventory();
     refreshEquipmentStats();
 
-    let currentRoomId = "ruins_start";
-    let currentRoom = rooms[currentRoomId];
-    let boss = null;
+    let currentZoneId = "ruins";
+    let currentZone = zones.find((zone) => zone.id === currentZoneId) || zones[0];
+    let boss = chunks.find((chunk) => chunk.boss)?.boss || null;
     let bossArenaLocked = false;
-    const roomFade = { active: false, phase: "out", t: 0, duration: 0.45, nextRoom: null, entry: null };
     const bossDefeatFlash = { t: 0, duration: 0.8 };
 
-    const initRoom = (room) => {
-      if (room._init) return;
-      for (const e of room.enemies){
-        e._sx = e.x;
-        e._sy = e.y;
-        if (e.isMiniBoss && e.id && defeatedMiniBosses.has(e.id)){
-          e._defeated = true;
-          e.hp = 0;
-          e.state = "dead";
+    const initChunk = (chunk) => {
+      if (chunk._init) return;
+      if (chunk.enemies){
+        for (const e of chunk.enemies){
+          e._sx = e.x;
+          e._sy = e.y;
+          if (e.isMiniBoss && e.id && defeatedMiniBosses.has(e.id)){
+            e._defeated = true;
+            e.hp = 0;
+            e.state = "dead";
+          }
         }
       }
-      if (room.pickups){
-        room.pickups.forEach((pickup) => {
+      if (chunk.pickups){
+        chunk.pickups.forEach((pickup) => {
           if (pickup.active == null){
             pickup.active = !collectedPickups.has(pickup.id);
           }
         });
       }
-      if (!room.drops) room.drops = [];
-      room._init = true;
+      if (!chunk.drops) chunk.drops = [];
+      chunk._init = true;
     };
 
-    const resetRoomEnemies = (room) => {
-      for (const e of room.enemies){
+    const resetChunkEnemies = (chunk) => {
+      if (!chunk.enemies) return;
+      for (const e of chunk.enemies){
         if (e._defeated) continue;
         if (e._sx == null) continue;
         e.x = e._sx; e.y = e._sy;
@@ -2124,92 +2225,94 @@ import {
       }
     };
 
-    const resetAllRoomsEnemies = () => {
-      Object.values(rooms).forEach((room) => resetRoomEnemies(room));
+    const resetAllChunksEnemies = () => {
+      chunks.forEach((chunk) => resetChunkEnemies(chunk));
     };
 
     const resetBoss = () => {
-      const arena = rooms.boss_arena;
+      const arena = chunks.find((chunk) => chunk.id === "boss_arena");
       if (!arena?.boss) return;
-      arena.boss = makeBoss(1200, 670 - YSHIFT);
+      arena.boss = makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT);
       boss = arena.boss;
     };
 
     const updateBossBar = () => {
-      const show = currentRoom?.id === "boss_arena" && boss && boss.hp > 0 && !bossDefeated;
+      const show = boss && boss.hp > 0 && !bossDefeated && bossArenaLocked;
       bossBar.classList.toggle("hidden", !show);
       if (show){
         bossHpFill.style.width = `${(boss.hp / boss.hpMax) * 100}%`;
       }
     };
 
-    const loadRoom = (roomId, options = {}) => {
-      const room = rooms[roomId];
-      if (!room) return;
-      currentRoomId = roomId;
-      currentRoom = room;
-      initRoom(room);
-      level.w = room.w;
-      level.h = room.h;
-      level.solids = room.solids;
-      level.bonfires = room.bonfires;
-      enemies = room.enemies;
-
-      if (room.id === "boss_arena"){
-        boss = room.boss;
-        if (bossDefeated){
-          boss.hp = 0;
-          boss.state = "dead";
-          bossArenaLocked = false;
-          room.bonfires.forEach((b) => { b.locked = false; });
-          if (!bossRewardClaimed){
-            const existingReward = room.drops?.some((drop) => drop.isBossReward);
-            if (!existingReward){
-              createRoomDrop(room, {
-                id: "boss_reward",
-                x: 980,
-                y: 660 - YSHIFT,
-                type: "relic",
-                itemId: "relic_iron",
-                isBossReward: true
-              });
-            }
+    const syncBossArenaState = () => {
+      const arena = chunks.find((chunk) => chunk.id === "boss_arena");
+      if (!arena?.boss) return;
+      if (bossDefeated){
+        arena.boss.hp = 0;
+        arena.boss.state = "dead";
+        arena.bonfires?.forEach((b) => { b.locked = false; });
+        if (!bossRewardClaimed){
+          const existingReward = arena.drops?.some((drop) => drop.isBossReward);
+          if (!existingReward){
+            createChunkDrop(arena, {
+              id: "boss_reward",
+              x: arena.boss.x - 40,
+              y: arena.boss.y + arena.boss.h - 18,
+              type: "relic",
+              itemId: "relic_iron",
+              isBossReward: true
+            });
           }
-        } else {
-          bossArenaLocked = true;
         }
-      } else {
-        boss = null;
-        bossArenaLocked = false;
-      }
-
-      const spawnOverride = options.spawn;
-      const entry = options.entry || "spawn";
-      const target = spawnOverride
-        ? spawnOverride
-        : room.entries?.[entry] || room.spawn;
-      player.x = target.x;
-      player.y = target.y;
-      player.vx = 0;
-      player.vy = 0;
-      updateBossBar();
-      if (!suppressAutoSave && state === "game" && activeSlotId) {
-        requestSave("room");
       }
     };
 
-    const startRoomTransition = (direction) => {
-      if (roomFade.active) return;
-      const nextRoomId = currentRoom?.neighbors?.[direction];
-      if (!nextRoomId) return;
-      roomFade.active = true;
-      roomFade.phase = "out";
-      roomFade.t = 0;
-      roomFade.nextRoom = nextRoomId;
-      roomFade.entry = direction === "right" ? "left" : "right";
+    const getZoneForPosition = (x, y) => zones.find((zone) =>
+      x >= zone.rect.x && x <= zone.rect.x + zone.rect.w && y >= zone.rect.y && y <= zone.rect.y + zone.rect.h
+    );
+
+    const updateZoneState = () => {
+      const centerX = player.x + player.w / 2;
+      const centerY = player.y + player.h / 2;
+      const zone = getZoneForPosition(centerX, centerY);
+      if (zone && zone.id !== currentZoneId){
+        currentZoneId = zone.id;
+        currentZone = zone;
+        zoneText.textContent = zone.name;
+        toast(`Zona: ${zone.name}`);
+      }
+      if (!zoneText.textContent && currentZone) {
+        zoneText.textContent = currentZone.name;
+      }
     };
 
-    loadRoom(currentRoomId);
+    const getChunkForPosition = (x, y) => chunks.find((chunk) =>
+      x >= chunk.rect.x && x <= chunk.rect.x + chunk.rect.w && y >= chunk.rect.y && y <= chunk.rect.y + chunk.rect.h
+    );
+
+    const distToRect = (x, y, rect) => {
+      const dx = Math.max(rect.x - x, 0, x - (rect.x + rect.w));
+      const dy = Math.max(rect.y - y, 0, y - (rect.y + rect.h));
+      return Math.hypot(dx, dy);
+    };
+
+    const CHUNK_ACTIVE_RANGE = 900;
+    const updateActiveChunks = () => {
+      activeChunks.clear();
+      activeEnemies = [];
+      const px = player.x + player.w / 2;
+      const py = player.y + player.h / 2;
+      for (const chunk of chunks){
+        const d = distToRect(px, py, chunk.rect);
+        if (d <= CHUNK_ACTIVE_RANGE){
+          initChunk(chunk);
+          activeChunks.add(chunk);
+          if (chunk.enemies){
+            activeEnemies.push(...chunk.enemies);
+          }
+        }
+      }
+    };
   
     // ===== Camera =====
     const cam = {x:0, y:0, shakeTime: 0, shakeMag: 0};
@@ -2267,17 +2370,33 @@ import {
   
     function centerCamera(){
       const targetX = player.x + player.w/2 - canvas.width/2;
-      cam.x = clamp(lerp(cam.x, targetX, 0.10), 0, level.w - canvas.width);
-      cam.y = 0;
+      const targetY = player.y + player.h/2 - canvas.height/2;
+      cam.x = clamp(lerp(cam.x, targetX, 0.10), 0, Math.max(0, level.w - canvas.width));
+      cam.y = clamp(lerp(cam.y, targetY, 0.10), 0, Math.max(0, level.h - canvas.height));
     }
   
     // ===== Physics / Collision =====
+    const shouldCollideWithSolid = (solid, ent) => {
+      if (!solid.gate) return true;
+      if (solid.type === "dash"){
+        if (ent !== player) return true;
+        return !(player.abilities.dash && player.dashT > 0);
+      }
+      if (solid.type === "door"){
+        return !doorFlags[solid.id];
+      }
+      if (solid.type === "boss"){
+        return bossArenaLocked;
+      }
+      return true;
+    };
+
     function moveAndCollide(ent, dt){
       // Horizontal
       ent.x += ent.vx * dt;
       let hitX = false;
       for (const s of level.solids){
-        if (rectsOverlap(ent, s)){
+        if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
           if (ent.vx > 0) ent.x = s.x - ent.w;
           else if (ent.vx < 0) ent.x = s.x + s.w;
           ent.vx = 0;
@@ -2289,7 +2408,7 @@ import {
       ent.y += ent.vy * dt;
       ent.onGround = false;
       for (const s of level.solids){
-        if (rectsOverlap(ent, s)){
+        if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
           if (ent.vy > 0){
             ent.y = s.y - ent.h;
             ent.vy = 0;
@@ -2430,14 +2549,15 @@ import {
     }
 
     // ===== Items & Drops =====
-    function createRoomDrop(room, drop){
-      if (!room) return;
-      if (!room.drops) room.drops = [];
-      room.drops.push({ ...drop, active: true });
+    function createChunkDrop(chunk, drop){
+      if (!chunk) return;
+      if (!chunk.drops) chunk.drops = [];
+      chunk.drops.push({ ...drop, active: true });
     }
 
     const handleEnemyKilled = (enemy) => {
-      if (!currentRoom || !enemy) return;
+      const chunk = getChunkForPosition(enemy.x, enemy.y);
+      if (!chunk || !enemy) return;
       if (enemy.isMiniBoss && enemy.id){
         defeatedMiniBosses.add(enemy.id);
         saveMiniBosses(defeatedMiniBosses);
@@ -2446,7 +2566,7 @@ import {
       if (enemy.dropItem){
         const { type, itemId } = enemy.dropItem;
         if (!isItemOwned(type, itemId)) {
-          createRoomDrop(currentRoom, {
+          createChunkDrop(chunk, {
             x: enemy.x + enemy.w / 2 - 10,
             y: enemy.y + enemy.h - 18,
             type,
@@ -2461,7 +2581,7 @@ import {
         const candidates = ["bitter_tonic", "ash_draught"].filter((id) => !isItemOwned("consumable", id));
         if (!candidates.length) return;
         const itemId = candidates[Math.floor(Math.random() * candidates.length)];
-        createRoomDrop(currentRoom, {
+        createChunkDrop(chunk, {
           x: enemy.x + enemy.w / 2 - 10,
           y: enemy.y + enemy.h - 18,
           type: "consumable",
@@ -2476,7 +2596,7 @@ import {
       const py = player.y + player.h / 2;
       let best = null;
       let bestD = 72;
-      for (const e of enemies){
+      for (const e of activeEnemies){
         if (e.hp <= 0 || e.state !== "stagger") continue;
         const ex = e.x + e.w / 2;
         const ey = e.y + e.h / 2;
@@ -2567,12 +2687,12 @@ import {
         id: b.id,
         x: b.spawnX ?? b.x - 16,
         y: b.spawnY ?? 740,
-        roomId: currentRoomId
+        zoneId: currentZoneId
       };
       player.hp = player.hpMax;
       player.st = player.stMax;
       player.estus = player.estusMax;
-      resetAllRoomsEnemies();
+      resetAllChunksEnemies();
 
       toast(`Descansou em ${b.id}.`);
       await requestSave("bonfire");
@@ -2590,8 +2710,7 @@ import {
           x: player.x + player.w/2 - 10,
           y: player.y + player.h - 16,
           amount: dropAmount,
-          active: true,
-          roomId: currentRoomId
+          active: true
         };
         player.souls = 0;
       }
@@ -2602,16 +2721,12 @@ import {
       player.st = player.stMax;
       player.estus = player.estusMax;
       player.vx = 0; player.vy = 0;
-      if (player.checkpoint.roomId && player.checkpoint.roomId !== currentRoomId){
-        loadRoom(player.checkpoint.roomId, { spawn: { x: player.checkpoint.x, y: player.checkpoint.y } });
-      } else {
-        player.x = player.checkpoint.x;
-        player.y = player.checkpoint.y;
-      }
+      player.x = player.checkpoint.x;
+      player.y = player.checkpoint.y;
       player.invulT = 0.9; // spawn grace
   
       // reset enemies to spawn
-      resetAllRoomsEnemies();
+      resetAllChunksEnemies();
       if (!bossDefeated){
         resetBoss();
       }
@@ -2619,7 +2734,7 @@ import {
   
     function tryPickupDeathDrop(){
       const d = player.deathDrop;
-      if (!d || !d.active || d.roomId !== currentRoomId) return;
+      if (!d || !d.active) return;
       const p = {x: player.x, y: player.y, w: player.w, h: player.h};
       const orb = {x: d.x, y: d.y, w: 20, h: 20};
       if (rectsOverlap(p, orb)){
@@ -2631,6 +2746,15 @@ import {
 
     function tryPickupItems(){
       const p = {x: player.x, y: player.y, w: player.w, h: player.h};
+      const handleAbilityPickup = (pickup) => {
+        const ability = pickup.abilityId;
+        if (!ability) return false;
+        if (player.abilities[ability]) return false;
+        player.abilities[ability] = true;
+        toast(`Habilidade desbloqueada: ${ability === "dash" ? "Dash" : ability === "wallJump" ? "Wall Jump" : "Pogo"}.`);
+        requestSave("ability");
+        return true;
+      };
       const checkList = (list, removeOnPickup = false, recordPickup = false) => {
         if (!list) return;
         for (let i = list.length - 1; i >= 0; i--){
@@ -2638,7 +2762,12 @@ import {
           if (!drop.active) continue;
           const itemBox = { x: drop.x, y: drop.y, w: 22, h: 22 };
           if (rectsOverlap(p, itemBox)){
-            const collected = grantItem(drop.type, drop.itemId);
+            let collected = false;
+            if (drop.type === "ability"){
+              collected = handleAbilityPickup(drop);
+            } else {
+              collected = grantItem(drop.type, drop.itemId);
+            }
             if (!collected) continue;
             drop.active = false;
             if (drop.isBossReward){
@@ -2658,8 +2787,29 @@ import {
           }
         }
       };
-      checkList(currentRoom?.pickups, false, true);
-      checkList(currentRoom?.drops, true);
+      for (const chunk of activeChunks){
+        checkList(chunk.pickups, false, true);
+        checkList(chunk.drops, true);
+      }
+    }
+
+    function tryOpenDoor(){
+      const p = { x: player.x, y: player.y, w: player.w, h: player.h };
+      for (const gate of worldGates){
+        if (gate.type !== "door" || doorFlags[gate.id]) continue;
+        const trigger = { x: gate.x - 20, y: gate.y, w: gate.w + 40, h: gate.h };
+        if (!rectsOverlap(p, trigger)) continue;
+        const fromLeft = player.x + player.w < gate.x + gate.w / 2;
+        const canOpen = gate.openFrom === "left" ? fromLeft : !fromLeft;
+        if (canOpen){
+          doorFlags[gate.id] = true;
+          toast("Atalho desbloqueado.");
+          requestSave("door");
+        } else {
+          toast("Trancado pelo outro lado.");
+        }
+        return;
+      }
     }
   
     // ===== Enemy AI =====
@@ -2782,9 +2932,10 @@ import {
         localStorage.setItem(bossDefeatedKey, "true");
         bossDefeatFlash.t = bossDefeatFlash.duration;
         bossArenaLocked = false;
-        currentRoom?.bonfires?.forEach((b) => { b.locked = false; });
+        const arena = chunks.find((chunk) => chunk.id === "boss_arena");
+        arena?.bonfires?.forEach((b) => { b.locked = false; });
         if (!bossRewardClaimed){
-          createRoomDrop(currentRoom, {
+          createChunkDrop(arena, {
             id: "boss_reward",
             x: boss.x + boss.w / 2 - 12,
             y: boss.y + boss.h - 18,
@@ -2956,21 +3107,26 @@ import {
       const p = makePlayer();
       Object.assign(player, p);
       refreshEquipmentStats();
-      Object.values(rooms).forEach((room) => {
-        initRoom(room);
-        resetRoomEnemies(room);
-        if (room.pickups){
-          room.pickups.forEach((pickup) => {
+      chunks.forEach((chunk) => {
+        initChunk(chunk);
+        resetChunkEnemies(chunk);
+        if (chunk.pickups){
+          chunk.pickups.forEach((pickup) => {
             pickup.active = !collectedPickups.has(pickup.id);
           });
         }
-        if (room.drops) room.drops.length = 0;
+        if (chunk.drops) chunk.drops.length = 0;
       });
+      doorFlags.hub_shortcut = false;
       if (!bossDefeated){
         resetBoss();
       }
-      currentRoomId = "ruins_start";
-      loadRoom(currentRoomId, { spawn: { ...rooms.ruins_start.spawn } });
+      player.x = ZONE_X.ruins + 180;
+      player.y = 740 - YSHIFT;
+      player.checkpoint = { id: "Ruínas", x: player.x, y: player.y, zoneId: "ruins" };
+      currentZoneId = "ruins";
+      currentZone = zones.find((zone) => zone.id === currentZoneId) || zones[0];
+      zoneText.textContent = currentZone.name;
       cam.x = 0; cam.shakeTime = 0; cam.shakeMag = 0;
       hitStopTimer = 0;
       hitParticles.length = 0;
@@ -2984,26 +3140,12 @@ import {
         autosaveTimer = 0;
         requestSave("autosave");
       }
-      if (roomFade.active){
-        roomFade.t += dt;
-        const progress = roomFade.t / roomFade.duration;
-        if (roomFade.phase === "out" && progress >= 1){
-          loadRoom(roomFade.nextRoom, { entry: roomFade.entry });
-          roomFade.phase = "in";
-          roomFade.t = 0;
-        } else if (roomFade.phase === "in" && progress >= 1){
-          roomFade.active = false;
-        }
-        consumeActions();
-        return;
-      }
-
       // Actions
       const left = keys.has("a") || keys.has("arrowleft");
       const right = keys.has("d") || keys.has("arrowright");
       const jumpHeld = keys.has("w") || keys.has("arrowup") || keys.has(" ");
       const restart = keys.has("r");
-      player.wallJumpUnlocked = inventoryState.owned.relic.includes("relic_iron");
+      player.wallJumpUnlocked = player.abilities.wallJump || inventoryState.owned.relic.includes("relic_iron");
   
       if (restart) resetAll();
   
@@ -3023,6 +3165,16 @@ import {
       if (player.isDrinking && player.drinkTimer <= 0){
         player.isDrinking = false;
       }
+
+      updateActiveChunks();
+      updateZoneState();
+      syncBossArenaState();
+      const bossArena = chunks.find((chunk) => chunk.id === "boss_arena");
+      const inBossArena = bossArena && rectsOverlap(
+        { x: player.x, y: player.y, w: player.w, h: player.h },
+        bossArena.rect
+      );
+      bossArenaLocked = Boolean(boss && !bossDefeated && inBossArena);
 
       for (let i = hitParticles.length - 1; i >= 0; i--){
         const p = hitParticles[i];
@@ -3099,7 +3251,9 @@ import {
       }
 
       if (input.dash && player.dashT <= 0 && player.rollT <= 0 && player.hurtT <= 0 && player.parryT <= 0 && !player.isDrinking){
-        if (player.onGround || player.dashAvailable){
+        if (!player.abilities.dash){
+          toast("Dash bloqueado.");
+        } else if (player.onGround || player.dashAvailable){
           const dashDir = left ? -1 : (right ? 1 : player.face);
           player.dashT = PLAYER_MOVE.dashDuration;
           player.dashDir = dashDir;
@@ -3141,11 +3295,24 @@ import {
   
       if (input.interact){
         tryPickupItems();
+        tryOpenDoor();
         restAtBonfire();
       }
   
       // Move & collide
       moveAndCollide(player, dt);
+
+      if (worldSpikes.length){
+        const pbox = { x: player.x, y: player.y, w: player.w, h: player.h };
+        for (const spike of worldSpikes){
+          if (rectsOverlap(pbox, spike)){
+            if (!player.abilities.pogo || player.attackType !== "plunge"){
+              playerTakeDamage(14, spike.x);
+            }
+            break;
+          }
+        }
+      }
 
       if (!jumpedThisFrame && player.onGround && player.jumpBufferTimer > 0 && canJump){
         player.vy = -PLAYER_MOVE.jumpSpeed;
@@ -3160,7 +3327,7 @@ import {
         const isPlunge = player.attackType === "plunge";
         const ah = isPlunge ? getPlungeHitbox() : getAttackHitbox();
         const weapon = getEquippedWeapon();
-        for (const e of enemies){
+        for (const e of activeEnemies){
           if (e.hp <= 0) continue;
           const eb = {x: e.x, y: e.y, w: e.w, h: e.h};
           if (rectsOverlap(ah, eb)){
@@ -3202,15 +3369,19 @@ import {
             }
           }
         }
-        if (isPlunge && !player.attackHit && currentRoom?.spikes){
-          for (const spike of currentRoom.spikes){
+        if (isPlunge && !player.attackHit && worldSpikes.length){
+          for (const spike of worldSpikes){
             if (rectsOverlap(ah, spike)){
-              player.attackHit = true;
-              player.attackT = 0;
-              player.onGround = false;
-              player.vy = -PLAYER_MOVE.plungeBounceSpeed;
-              triggerHitStop(0.04);
-              triggerShake(2, 3, 0.1);
+              if (player.abilities.pogo){
+                player.attackHit = true;
+                player.attackT = 0;
+                player.onGround = false;
+                player.vy = -PLAYER_MOVE.plungeBounceSpeed;
+                triggerHitStop(0.04);
+                triggerShake(2, 3, 0.1);
+              } else {
+                playerTakeDamage(16, spike.x);
+              }
               break;
             }
           }
@@ -3218,25 +3389,18 @@ import {
       }
   
       // Update enemies
-      for (const e of enemies) enemyUpdate(e, dt);
+      for (const e of activeEnemies) enemyUpdate(e, dt);
 
-      bossUpdate(dt);
+      if (boss && (bossArenaLocked || rectsOverlap({ x: player.x, y: player.y, w: player.w, h: player.h }, { x: boss.x - 480, y: boss.y - 240, w: 960, h: 480 }))){
+        bossUpdate(dt);
+      }
+      updateBossBar();
   
       // Death drop pickup
       tryPickupDeathDrop();
-  
+
       // Update checkpoint label
       cpText.textContent = player.checkpoint.id;
-
-      if (!bossArenaLocked){
-        if (player.x + player.w >= currentRoom.bounds.right - 2){
-          startRoomTransition("right");
-        } else if (player.x <= currentRoom.bounds.left + 2){
-          startRoomTransition("left");
-        }
-      } else {
-        player.x = clamp(player.x, currentRoom.bounds.left + 4, currentRoom.bounds.right - player.w - 4);
-      }
   
       // Clear one-shot input
       consumeActions();
@@ -3249,8 +3413,11 @@ import {
       }
   
       // Fell off world safety
-      const fellOut = currentRoom.voidKill
-        ? player.y > currentRoom.voidY
+      const voidChunk = chunks.find((chunk) => chunk.voidKill
+        && player.x + player.w > chunk.rect.x
+        && player.x < chunk.rect.x + chunk.rect.w);
+      const fellOut = voidChunk
+        ? player.y > voidChunk.voidY
         : player.y > level.h + 200;
       const leftVoid = player.x < -200;
       const rightVoid = player.x > level.w + 200;
@@ -3295,14 +3462,19 @@ import {
         ctx.fillStyle = "rgba(255,255,255,.06)";
         ctx.fillRect(s.x + ox, s.y + oy, s.w, 3);
       }
+      // Gates (dash/door/boss)
+      for (const gate of worldGates){
+        const isDoorOpen = gate.type === "door" && doorFlags[gate.id];
+        if (gate.type === "door" && isDoorOpen) continue;
+        if (gate.type === "boss" && !bossArenaLocked) continue;
+        ctx.fillStyle = gate.type === "dash" ? "rgba(120,170,255,.6)" : "rgba(80,60,50,.7)";
+        ctx.fillRect(gate.x + ox, gate.y + oy, gate.w, gate.h);
+      }
 
-      if (currentRoomId === "boss_arena" && bossArenaLocked){
-        ctx.fillStyle = "#2a1f1a";
-        ctx.fillRect(0 + ox, 560 - YSHIFT + oy, 40, 220);
-        ctx.fillRect(level.w - 40 + ox, 560 - YSHIFT + oy, 40, 220);
-        ctx.fillStyle = "rgba(255,200,160,.18)";
-        ctx.fillRect(0 + ox, 560 - YSHIFT + oy, 6, 220);
-        ctx.fillRect(level.w - 6 + ox, 560 - YSHIFT + oy, 6, 220);
+      // Espinhos
+      for (const spike of worldSpikes){
+        ctx.fillStyle = "rgba(120,60,80,.8)";
+        ctx.fillRect(spike.x + ox, spike.y + oy, spike.w, spike.h);
       }
   
       // Bonfires
@@ -3329,7 +3501,7 @@ import {
       }
   
       // Death drop orb
-      if (player.deathDrop && player.deathDrop.active && player.deathDrop.roomId === currentRoomId){
+      if (player.deathDrop && player.deathDrop.active){
         const d = player.deathDrop;
         const t = now()/1000;
         const bob = Math.sin(t*4)*3;
@@ -3353,7 +3525,8 @@ import {
           weapon: "rgba(240,210,120,.9)",
           armor: "rgba(140,200,255,.9)",
           relic: "rgba(210,170,255,.9)",
-          consumable: "rgba(120,220,160,.9)"
+          consumable: "rgba(120,220,160,.9)",
+          ability: "rgba(180,220,255,.9)"
         };
         const glow = colors[drop.type] || "rgba(200,200,200,.9)";
         ctx.fillStyle = glow;
@@ -3367,15 +3540,13 @@ import {
         ctx.stroke();
       };
 
-      if (currentRoom?.pickups){
-        currentRoom.pickups.forEach((pickup) => drawLoot(pickup));
-      }
-      if (currentRoom?.drops){
-        currentRoom.drops.forEach((drop) => drawLoot(drop));
+      for (const chunk of activeChunks){
+        chunk.pickups?.forEach((pickup) => drawLoot(pickup));
+        chunk.drops?.forEach((drop) => drawLoot(drop));
       }
   
       // Enemies
-      for (const e of enemies){
+      for (const e of activeEnemies){
         // shadow
         ctx.globalAlpha = 0.25;
         ctx.fillStyle = "#000";
@@ -3485,14 +3656,6 @@ import {
         ctx.fillText(hint, nb.b.x - 40 + ox, nb.b.y - 10 + oy);
       }
 
-      if (currentRoom?.message){
-        ctx.fillStyle = "rgba(230,230,255,.9)";
-        ctx.font = "20px 'Times New Roman', serif";
-        ctx.textAlign = "center";
-        ctx.fillText(currentRoom.message, canvas.width / 2, 80);
-        ctx.textAlign = "start";
-      }
-  
       // ground info
       ctx.fillStyle = "rgba(255,255,255,.06)";
       ctx.fillRect(0, 500, canvas.width, 2);
@@ -3504,9 +3667,6 @@ import {
       stText.textContent = `${Math.floor(player.st)}/${player.stMax}`;
       soulsText.textContent = `${player.souls}`;
       estusText.textContent = `${player.estus}/${player.estusMax}`;
-      if (boss && !bossDefeated && currentRoomId === "boss_arena"){
-        bossHpFill.style.width = `${(boss.hp / boss.hpMax) * 100}%`;
-      }
 
       if (deathFade.t > 0){
         const progress = 1 - (deathFade.t / deathFade.duration);
@@ -3522,12 +3682,6 @@ import {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      if (roomFade.active){
-        const progress = Math.min(1, roomFade.t / roomFade.duration);
-        const alpha = roomFade.phase === "out" ? progress : (1 - progress);
-        ctx.fillStyle = `rgba(0,0,0,${alpha})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
     }
   
     // ===== Main Loop =====
