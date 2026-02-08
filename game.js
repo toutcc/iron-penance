@@ -49,14 +49,14 @@ import {
   const damageFlash = document.getElementById("damageFlash");
   const bossBar = document.getElementById("bossBar");
   const bossHpFill = document.getElementById("bossHpFill");
-  const inventoryScreen = document.getElementById("inventoryScreen");
+  const inventoryOverlay = document.getElementById("inventoryOverlay");
   const inventoryWeight = document.getElementById("inventoryWeight");
-  const inventoryDetails = document.getElementById("inventoryDetails");
-  const inventorySlots = Array.from(document.querySelectorAll(".inventory-slot"));
-  const slotWeapon = document.getElementById("slotWeapon");
-  const slotArmor = document.getElementById("slotArmor");
-  const slotRelic = document.getElementById("slotRelic");
-  const slotConsumable = document.getElementById("slotConsumable");
+  const inventoryTooltip = document.getElementById("inventoryTooltip");
+  const inventoryGridSlots = Array.from(document.querySelectorAll(".inventory-grid-slot"));
+  const equipmentSlots = Array.from(document.querySelectorAll(".equipment-slot"));
+  const inventoryCloseBtn = document.getElementById("inventoryClose");
+  const inventorySortBtn = document.getElementById("inventorySort");
+  const inventoryDragGhost = document.getElementById("inventoryDragGhost");
   const pauseOverlay = document.getElementById("pauseOverlay");
   const pauseMenu = document.getElementById("pauseMenu");
   const pauseMenuList = document.getElementById("pauseMenuList");
@@ -125,7 +125,6 @@ import {
   let menuRafId = null;
   let menuIndex = 0;
   let profilesIndex = 0;
-  let inventoryIndex = 0;
   let pauseIndex = 0;
   let pauseOptionsIndex = 0;
   let pauseOptionsSection = "game";
@@ -142,6 +141,7 @@ import {
   let suppressAutoSave = false;
   let clearConfirmSlotId = null;
   const slotCache = new Map();
+  const dragState = { active: false, source: null, item: null, qty: 0 };
   let visitedZones = new Set();
   const QUEST_DEFS = [
     {
@@ -253,11 +253,25 @@ import {
     parry: Boolean(saved.parry)
   });
 
+  const createDefaultInventorySlots = () => {
+    const slots = Array(24).fill(null);
+    slots[0] = { itemId: "weapon_short_sword", qty: 1 };
+    slots[1] = { itemId: "armor_cloth", qty: 1 };
+    return slots;
+  };
+
   const createDefaultGameState = () => ({
     gold: 0,
     questDrops: { fragment: 0 },
     quests: normalizeQuestData(),
-    unlocks: normalizeUnlocks()
+    unlocks: normalizeUnlocks(),
+    inventorySlots: createDefaultInventorySlots(),
+    equipment: {
+      weaponId: "weapon_short_sword",
+      armorId: "armor_cloth",
+      relic1Id: null,
+      relic2Id: null
+    }
   });
 
   let gameState = createDefaultGameState();
@@ -343,19 +357,20 @@ import {
     hud.classList.remove("hidden");
     canvas.classList.remove("hidden");
     updateBossBar();
-    inventoryScreen.classList.add("hidden");
+    inventoryOverlay.classList.add("hidden");
   };
 
   const showInventory = () => {
     showGame();
-    inventoryScreen.classList.remove("hidden");
-    inventoryScreen.setAttribute("aria-hidden", "false");
-    updateInventoryUI();
+    inventoryOverlay.classList.remove("hidden");
+    inventoryOverlay.setAttribute("aria-hidden", "false");
+    renderInventory();
   };
 
   const hideInventory = () => {
-    inventoryScreen.classList.add("hidden");
-    inventoryScreen.setAttribute("aria-hidden", "true");
+    inventoryOverlay.classList.add("hidden");
+    inventoryOverlay.setAttribute("aria-hidden", "true");
+    endInventoryDrag();
   };
 
   // ===== Pause Menu UI =====
@@ -395,13 +410,19 @@ import {
     renderPauseMenu();
   };
 
-  inventorySlots.forEach((slotEl, index) => {
-    slotEl.addEventListener("click", () => {
-      if (state !== "inventory") return;
-      inventoryIndex = index;
-      updateInventoryUI();
+  if (inventoryCloseBtn) {
+    inventoryCloseBtn.addEventListener("click", () => {
+      if (state === "inventory") setState("game");
     });
-  });
+  }
+
+  if (inventorySortBtn) {
+    inventorySortBtn.addEventListener("click", () => {
+      if (state !== "inventory") return;
+      sortInventory();
+      renderInventory();
+    });
+  }
 
   const showQuestDialog = () => {
     questOverlay.classList.remove("hidden");
@@ -1042,6 +1063,7 @@ import {
       hpMax: player.hpMax,
       estus: player.estus,
       estusMax: player.estusMax,
+      estusBaseMax: player.estusBaseMax,
       x: player.x,
       y: player.y
     },
@@ -1053,6 +1075,10 @@ import {
     visitedZones: [...visitedZones],
     questDrops: { ...gameState.questDrops },
     quests: { ...gameState.quests },
+    // Save do inventário real (grid + equipamento + pickups).
+    inventorySlots: gameState.inventorySlots,
+    equipment: { ...gameState.equipment },
+    pickupCollected: [...collectedPickups],
     flags: {
       bossDefeated,
       doorFlags: { ...doorFlags },
@@ -1162,6 +1188,11 @@ import {
     if (Number.isFinite(savedPlayer.hpMax)) player.hpMax = savedPlayer.hpMax;
     if (Number.isFinite(savedPlayer.estus)) player.estus = savedPlayer.estus;
     if (Number.isFinite(savedPlayer.estusMax)) player.estusMax = savedPlayer.estusMax;
+    if (Number.isFinite(savedPlayer.estusBaseMax)) {
+      player.estusBaseMax = savedPlayer.estusBaseMax;
+    } else if (Number.isFinite(savedPlayer.estusMax)) {
+      player.estusBaseMax = savedPlayer.estusMax;
+    }
     if (Number.isFinite(savedPlayer.x)) player.x = savedPlayer.x;
     if (Number.isFinite(savedPlayer.y)) player.y = savedPlayer.y;
     if (Number.isFinite(savedSouls)) player.souls = savedSouls;
@@ -1196,9 +1227,14 @@ import {
       if (data.flags.doorFlags) {
         Object.assign(doorFlags, data.flags.doorFlags);
       }
-      if (Array.isArray(data.flags.pickupsCollected)) {
+      const pickupList = Array.isArray(data.pickupCollected)
+        ? data.pickupCollected
+        : Array.isArray(data.flags.pickupsCollected)
+          ? data.flags.pickupsCollected
+          : null;
+      if (pickupList) {
         collectedPickups.clear();
-        data.flags.pickupsCollected.forEach((id) => collectedPickups.add(id));
+        pickupList.forEach((id) => collectedPickups.add(id));
         saveCollectedPickups(collectedPickups);
       }
       if (Array.isArray(data.flags.miniBossesDefeated)) {
@@ -1207,9 +1243,18 @@ import {
         saveMiniBosses(defeatedMiniBosses);
       }
     }
+    if (Array.isArray(data.inventorySlots)) {
+      gameState.inventorySlots = normalizeInventorySlots(data.inventorySlots);
+    } else if (!Array.isArray(gameState.inventorySlots)) {
+      gameState.inventorySlots = createDefaultInventorySlots();
+    }
+    if (data.equipment) {
+      gameState.equipment = normalizeEquipment(data.equipment);
+    }
     cpText.textContent = player.checkpoint?.id || "—";
     updateZoneState();
     refreshEquipmentStats();
+
     return true;
   };
 
@@ -2001,108 +2046,100 @@ import {
     const now = () => performance.now();
 
     // ===== Inventory & Equipment Data =====
-    const WEAPONS = {
-      short_sword: {
-        id: "short_sword",
+    const itemDB = {
+      weapon_short_sword: {
+        id: "weapon_short_sword",
         name: "Espada Curta",
+        type: "weapon",
+        rarity: "common",
+        icon: "✶",
+        canParry: true,
         description: "Uma lâmina simples, rápida e fiel.",
-        damage: 22,
-        staminaCost: 20,
-        attackSpeed: 1.15,
-        poiseDamage: 24,
-        reach: 32,
-        weight: 18,
-        canParry: true
+        stats: { damage: 22, staminaCost: 20, reach: 32, attackSpeed: 1.15, weight: 18 }
       },
-      long_sword: {
-        id: "long_sword",
+      weapon_long_sword: {
+        id: "weapon_long_sword",
         name: "Espada Longa",
+        type: "weapon",
+        rarity: "uncommon",
+        icon: "✷",
+        canParry: true,
         description: "Equilíbrio entre alcance e controle.",
-        damage: 28,
-        staminaCost: 26,
-        attackSpeed: 1.0,
-        poiseDamage: 32,
-        reach: 40,
-        weight: 28,
-        canParry: true
+        stats: { damage: 28, staminaCost: 26, reach: 40, attackSpeed: 1.0, weight: 28 }
       },
-      heavy_sword: {
-        id: "heavy_sword",
-        name: "Espada Pesada",
+      weapon_great_sword: {
+        id: "weapon_great_sword",
+        name: "Montante Penitente",
+        type: "weapon",
+        rarity: "rare",
+        icon: "✸",
+        canParry: false,
         description: "Cortes brutais que quebram a guarda.",
-        damage: 36,
-        staminaCost: 34,
-        attackSpeed: 0.8,
-        poiseDamage: 46,
-        reach: 46,
-        weight: 40,
-        canParry: false
-      }
-    };
-
-    const ARMORS = {
-      light_armor: {
-        id: "light_armor",
-        name: "Armadura Leve",
+        stats: { damage: 36, staminaCost: 34, reach: 46, attackSpeed: 0.82, weight: 40 }
+      },
+      armor_cloth: {
+        id: "armor_cloth",
+        name: "Armadura de Pano",
+        type: "armor",
+        rarity: "common",
+        icon: "⬡",
         description: "Tecido reforçado com placas discretas.",
-        defense: 4,
-        weight: 12,
-        poiseBonus: 4
+        stats: { defense: 4, weight: 12, poiseBonus: 4 }
       },
-      medium_armor: {
-        id: "medium_armor",
-        name: "Armadura Média",
-        description: "Proteção equilibrada para peregrinos.",
-        defense: 9,
-        weight: 22,
-        poiseBonus: 8
+      armor_mail: {
+        id: "armor_mail",
+        name: "Cota Penitente",
+        type: "armor",
+        rarity: "uncommon",
+        icon: "⬢",
+        description: "Elos escuros que seguram o golpe.",
+        stats: { defense: 9, weight: 22, poiseBonus: 8 }
       },
-      heavy_armor: {
-        id: "heavy_armor",
-        name: "Armadura Pesada",
+      armor_plate: {
+        id: "armor_plate",
+        name: "Armadura de Placas",
+        type: "armor",
+        rarity: "rare",
+        icon: "⬣",
         description: "Aço penitente que reduz a mobilidade.",
-        defense: 15,
-        weight: 38,
-        poiseBonus: 14
-      }
-    };
-
-    const RELICS = {
+        stats: { defense: 15, weight: 38, poiseBonus: 14 }
+      },
       relic_ember: {
         id: "relic_ember",
         name: "Relíquia da Brasa",
-        description: "Aumenta levemente a regeneração de stamina."
+        type: "relic",
+        rarity: "rare",
+        icon: "❖",
+        description: "Mantém o calor nas veias.",
+        stats: { effects: [{ type: "staminaRegen", value: 6, label: "+6 regen stamina" }] }
       },
-      relic_iron: {
-        id: "relic_iron",
-        name: "Relíquia de Ferro",
-        description: "Um núcleo pesado que fortalece a determinação."
+      relic_iron_heart: {
+        id: "relic_iron_heart",
+        name: "Coração de Ferro",
+        type: "relic",
+        rarity: "epic",
+        icon: "✥",
+        description: "Um núcleo pesado que fortalece a determinação.",
+        stats: { effects: [{ type: "estusMax", value: 1, label: "+1 Estus" }, { type: "wallJump", value: 1, label: "Wall Jump simbiótico" }] }
+      },
+      material_iron_shard: {
+        id: "material_iron_shard",
+        name: "Fragmento de Ferro",
+        type: "material",
+        rarity: "common",
+        icon: "◈",
+        stackable: true,
+        description: "Fragmentos frios com cheiro de ferrugem."
+      },
+      material_ashen_core: {
+        id: "material_ashen_core",
+        name: "Núcleo Cinerário",
+        type: "material",
+        rarity: "rare",
+        icon: "◉",
+        stackable: true,
+        description: "Resquício da arena do penitente."
       }
-    };
-
-    const CONSUMABLES = {
-      estus: {
-        id: "estus",
-        name: "Frasco de Estus",
-        description: "Restaura parte da vida ao ser consumido."
-      },
-      bitter_tonic: {
-        id: "bitter_tonic",
-        name: "Tônico Amargo",
-        description: "Um tônico improvisado. Serve como consumível de viagem."
-      },
-      ash_draught: {
-        id: "ash_draught",
-        name: "Gole de Cinzas",
-        description: "Alivia a exaustão por um breve momento."
-      }
-    };
-
-    const INVENTORY_LIMITS = {
-      weapon: 6,
-      armor: 6,
-      relic: 4,
-      consumable: 6
     };
 
     const EQUIP_LOAD = {
@@ -2210,19 +2247,7 @@ import {
         return;
       }
       if (state === "inventory") {
-        if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
-        if (!canProcessUiInput(e)) return;
-        if (key === "arrowup") {
-          inventoryIndex = (inventoryIndex - 1 + inventoryOrder.length) % inventoryOrder.length;
-          updateInventoryUI();
-        }
-        if (key === "arrowdown") {
-          inventoryIndex = (inventoryIndex + 1) % inventoryOrder.length;
-          updateInventoryUI();
-        }
-        if (key === "enter") {
-          cycleEquipment(inventoryOrder[inventoryIndex]);
-        }
+        if (["escape"].includes(key)) e.preventDefault();
         if (key === "escape") {
           setState("game");
         }
@@ -2399,6 +2424,7 @@ import {
         hp: 100, hpMax: 100,
         st: 100, stMax: 100,
         poise: 0,
+        estusBaseMax: baseEstusMax,
         estusMax: baseEstusMax,
         estus: baseEstusMax,
         defense: 0,
@@ -2406,6 +2432,8 @@ import {
         equipLoad: 0,
         equipLoadRatio: 0,
         rollProfile: "medium",
+        relicStaminaBonus: 0,
+        wallJumpRelicBonus: 0,
 
         // state timers
         hurtT: 0,
@@ -2498,7 +2526,7 @@ import {
     const miniBossKnight = makeEnemy(1480, 740, "knight");
     miniBossKnight.id = "mini_boss_knight";
     miniBossKnight.isMiniBoss = true;
-    miniBossKnight.dropItem = { type: "weapon", itemId: "heavy_sword" };
+    miniBossKnight.dropItem = { type: "weapon", itemId: "weapon_great_sword" };
 
     const WORLD = { w: 10800, h: 1400 };
     const ZONE_X = {
@@ -2605,7 +2633,7 @@ import {
           makeEnemy(980, 520, "hollow")
         ], ZONE_X.ruins),
         pickups: offsetList([
-          { id: "pickup_long_sword", type: "weapon", itemId: "long_sword", x: 620, y: 700 - YSHIFT }
+          { id: "pickup_long_sword", type: "weapon", itemId: "weapon_long_sword", x: 620, y: 700 - YSHIFT }
         ], ZONE_X.ruins),
         npcs: offsetList([
           { id: "quest_giver", type: "quest", name: "A Santa da Ruína", x: 360, y: 712 - YSHIFT, w: 28, h: 46 },
@@ -2644,7 +2672,7 @@ import {
           makeEnemy(540, 580 - YSHIFT, "hollow")
         ], ZONE_X.abyss),
         pickups: offsetList([
-          { id: "pickup_medium_armor", type: "armor", itemId: "medium_armor", x: 880, y: 500 - YSHIFT }
+          { id: "pickup_mail_armor", type: "armor", itemId: "armor_mail", x: 880, y: 500 - YSHIFT }
         ], ZONE_X.abyss),
         voidKill: true,
         voidY: 980 - YSHIFT
@@ -2701,7 +2729,7 @@ import {
           { x: 1020, y: 760 - YSHIFT, w: 240, h: 20 }
         ], ZONE_X.antechamber),
         pickups: offsetList([
-          { id: "pickup_heavy_armor", type: "armor", itemId: "heavy_armor", x: 980, y: 700 - YSHIFT }
+          { id: "pickup_relic_iron_heart", type: "relic", itemId: "relic_iron_heart", x: 980, y: 700 - YSHIFT }
         ], ZONE_X.antechamber)
       },
       // BOSS: aproximação e arena.
@@ -2755,188 +2783,499 @@ import {
     };
 
     // ===== Inventory State =====
-    const defaultInventoryState = () => ({
-      equipment: {
-        weapon: "short_sword",
-        armor: "light_armor",
-        relic: "relic_ember",
-        consumable: "estus"
-      },
-      owned: {
-        weapon: ["short_sword"],
-        armor: ["light_armor"],
-        relic: ["relic_ember"],
-        consumable: ["estus"]
-      }
-    });
+    const getItemById = (itemId) => itemDB[itemId] || null;
+    const isStackable = (item) => item?.type === "material" && item.stackable;
 
-    const inventoryState = defaultInventoryState();
-    const inventoryOrder = ["weapon", "armor", "relic", "consumable"];
-
-    const getWeapon = (id) => WEAPONS[id] || WEAPONS.short_sword;
-    const getArmor = (id) => ARMORS[id] || ARMORS.light_armor;
-    const getRelic = (id) => RELICS[id] || RELICS.relic_ember;
-    const getConsumable = (id) => CONSUMABLES[id] || CONSUMABLES.estus;
-
-    const isItemOwned = (slot, itemId) => inventoryState.owned[slot]?.includes(itemId);
-
-    const getItemBySlot = (slot, itemId) => {
-      if (slot === "weapon") return getWeapon(itemId);
-      if (slot === "armor") return getArmor(itemId);
-      if (slot === "relic") return getRelic(itemId);
-      if (slot === "consumable") return getConsumable(itemId);
-      return null;
+    const getWeaponItem = (itemId) => {
+      const item = getItemById(itemId);
+      return item?.type === "weapon" ? item : getItemById("weapon_short_sword");
     };
 
-    const saveInventory = () => {
-      localStorage.setItem("ironpenance_inventory", JSON.stringify(inventoryState));
+    const getArmorItem = (itemId) => {
+      const item = getItemById(itemId);
+      return item?.type === "armor" ? item : getItemById("armor_cloth");
     };
 
-    const loadInventory = () => {
-      const raw = localStorage.getItem("ironpenance_inventory");
-      if (!raw) return;
-      try {
-        const data = JSON.parse(raw);
-        if (!data?.owned || !data?.equipment) return;
-        inventoryState.owned = {
-          weapon: Array.isArray(data.owned.weapon) ? data.owned.weapon : inventoryState.owned.weapon,
-          armor: Array.isArray(data.owned.armor) ? data.owned.armor : inventoryState.owned.armor,
-          relic: Array.isArray(data.owned.relic) ? data.owned.relic : inventoryState.owned.relic,
-          consumable: Array.isArray(data.owned.consumable) ? data.owned.consumable : inventoryState.owned.consumable
-        };
-        inventoryState.equipment = {
-          weapon: data.equipment.weapon || inventoryState.equipment.weapon,
-          armor: data.equipment.armor || inventoryState.equipment.armor,
-          relic: data.equipment.relic || inventoryState.equipment.relic,
-          consumable: data.equipment.consumable || inventoryState.equipment.consumable
-        };
-        inventoryOrder.forEach((slot) => {
-          const list = inventoryState.owned[slot] || [];
-          if (!list.includes(inventoryState.equipment[slot])) {
-            inventoryState.equipment[slot] = list[0] || inventoryState.equipment[slot];
-          }
-        });
-      } catch (error) {
-        console.warn("Falha ao carregar inventário:", error);
-      }
-    };
-
-    const refreshEquipmentStats = () => {
-      const weapon = getWeapon(inventoryState.equipment.weapon);
-      const armor = getArmor(inventoryState.equipment.armor);
-      const totalWeight = weapon.weight + armor.weight;
-      const ratio = totalWeight / EQUIP_LOAD.max;
-      let profile = "medium";
-      if (ratio < EQUIP_LOAD.fast) profile = "fast";
-      if (ratio > EQUIP_LOAD.medium) profile = "heavy";
-      player.defense = armor.defense;
-      player.poiseBonus = armor.poiseBonus;
-      player.equipLoad = totalWeight;
-      player.equipLoadRatio = ratio;
-      player.rollProfile = profile;
-    };
-
-    const grantItem = (slot, itemId) => {
-      if (!inventoryState.owned[slot]) inventoryState.owned[slot] = [];
-      if (inventoryState.owned[slot].includes(itemId)) {
-        toast("Item já obtido.");
-        return false;
-      }
-      const limit = INVENTORY_LIMITS[slot];
-      if (Number.isFinite(limit) && inventoryState.owned[slot].length >= limit) {
-        toast("Inventário cheio.");
-        return false;
-      }
-      inventoryState.owned[slot].push(itemId);
-      toast(`Você obteve: ${getItemBySlot(slot, itemId)?.name || "item"}.`);
-      if (!inventoryState.equipment[slot]) {
-        inventoryState.equipment[slot] = itemId;
-      }
-      saveInventory();
-      refreshEquipmentStats();
-      if (state === "inventory") updateInventoryUI();
-      return true;
-    };
-
-    const cycleEquipment = (slot) => {
-      const list = inventoryState.owned[slot] || [];
-      if (!list.length) return;
-      const current = inventoryState.equipment[slot];
-      const idx = Math.max(0, list.indexOf(current));
-      const next = list[(idx + 1) % list.length];
-      inventoryState.equipment[slot] = next;
-      toast(`${getItemBySlot(slot, next)?.name || "Item"} equipado.`);
-      saveInventory();
-      refreshEquipmentStats();
-      updateInventoryUI();
+    const getEquippedRelics = () => {
+      return [gameState.equipment.relic1Id, gameState.equipment.relic2Id]
+        .map((id) => getItemById(id))
+        .filter((item) => item?.type === "relic");
     };
 
     const getRollProfile = () => ROLL_PROFILES[player.rollProfile] || ROLL_PROFILES.medium;
 
-    const updateInventoryUI = () => {
-      const weapon = getWeapon(inventoryState.equipment.weapon);
-      const armor = getArmor(inventoryState.equipment.armor);
-      const relic = getRelic(inventoryState.equipment.relic);
-      const consumable = getConsumable(inventoryState.equipment.consumable);
-      slotWeapon.textContent = weapon.name;
-      slotArmor.textContent = armor.name;
-      slotRelic.textContent = relic.name;
-      slotConsumable.textContent = consumable.name;
-
-      inventorySlots.forEach((slotEl, index) => {
-        slotEl.classList.toggle("is-selected", index === inventoryIndex);
+    const getRelicBonus = () => {
+      const bonus = { staminaRegen: 0, estusMax: 0, wallJump: 0 };
+      getEquippedRelics().forEach((relic) => {
+        relic.stats?.effects?.forEach((effect) => {
+          if (effect.type === "staminaRegen") bonus.staminaRegen += effect.value;
+          if (effect.type === "estusMax") bonus.estusMax += effect.value;
+          if (effect.type === "wallJump") bonus.wallJump += effect.value;
+        });
       });
+      return bonus;
+    };
 
-      const selectedSlot = inventoryOrder[inventoryIndex];
-      const selectedId = inventoryState.equipment[selectedSlot];
-      const item = getItemBySlot(selectedSlot, selectedId);
+    const ensureItemInInventory = (itemId) => {
+      if (!itemId) return;
+      if (gameState.inventorySlots.some((slot) => slot?.itemId === itemId)) return;
+      const emptyIndex = gameState.inventorySlots.findIndex((slot) => !slot);
+      if (emptyIndex >= 0) {
+        gameState.inventorySlots[emptyIndex] = { itemId, qty: 1 };
+      }
+    };
+
+    const isItemInInventory = (itemId) => gameState.inventorySlots.some((slot) => slot?.itemId === itemId);
+
+    const refreshEquipmentStats = () => {
+      ensureItemInInventory(gameState.equipment.weaponId);
+      ensureItemInInventory(gameState.equipment.armorId);
+      ensureItemInInventory(gameState.equipment.relic1Id);
+      ensureItemInInventory(gameState.equipment.relic2Id);
+      const weapon = getWeaponItem(gameState.equipment.weaponId);
+      const armor = getArmorItem(gameState.equipment.armorId);
+      const totalWeight = (weapon.stats?.weight || 0) + (armor.stats?.weight || 0);
+      const ratio = totalWeight / EQUIP_LOAD.max;
+      let profile = "medium";
+      if (ratio < EQUIP_LOAD.fast) profile = "fast";
+      if (ratio > EQUIP_LOAD.medium) profile = "heavy";
+      player.defense = armor.stats?.defense || 0;
+      player.poiseBonus = armor.stats?.poiseBonus || 0;
+      player.equipLoad = totalWeight;
+      player.equipLoadRatio = ratio;
+      player.rollProfile = profile;
+      const relicBonus = getRelicBonus();
+      player.relicStaminaBonus = relicBonus.staminaRegen;
+      player.estusMax = (player.estusBaseMax || player.estusMax) + relicBonus.estusMax;
+      player.estus = Math.min(player.estus, player.estusMax);
+      player.wallJumpRelicBonus = relicBonus.wallJump;
+    };
+
+    const addItemToInventory = (itemId, qty = 1) => {
+      const item = getItemById(itemId);
+      if (!item) return false;
+      if (isStackable(item)) {
+        const existing = gameState.inventorySlots.find((slot) => slot?.itemId === itemId);
+        if (existing) {
+          existing.qty = Math.max(1, existing.qty + qty);
+          return true;
+        }
+      }
+      const emptyIndex = gameState.inventorySlots.findIndex((slot) => !slot);
+      if (emptyIndex === -1) {
+        toast("Inventário cheio.");
+        return false;
+      }
+      gameState.inventorySlots[emptyIndex] = { itemId, qty: Math.max(1, qty) };
+      return true;
+    };
+
+    const removeItemFromInventory = (index) => {
+      if (index < 0 || index >= gameState.inventorySlots.length) return null;
+      const removed = gameState.inventorySlots[index];
+      gameState.inventorySlots[index] = null;
+      return removed;
+    };
+
+    const equipItem = (equipSlot, itemId) => {
+      const item = getItemById(itemId);
+      if (!item) return false;
+      const slotType = equipSlot.startsWith("relic") ? "relic" : equipSlot;
+      if (item.type !== slotType) return false;
+      const equipKey = `${equipSlot}Id`;
+      gameState.equipment[equipKey] = itemId;
+      ensureItemInInventory(itemId);
+      refreshEquipmentStats();
+      return true;
+    };
+
+    const sortInventory = () => {
+      const sorted = gameState.inventorySlots.filter(Boolean).sort((a, b) => {
+        const itemA = getItemById(a.itemId);
+        const itemB = getItemById(b.itemId);
+        if (!itemA || !itemB) return 0;
+        if (itemA.type !== itemB.type) return itemA.type.localeCompare(itemB.type);
+        return itemA.name.localeCompare(itemB.name);
+      });
+      gameState.inventorySlots = [...sorted, ...Array(24 - sorted.length).fill(null)];
+    };
+
+    const normalizeInventorySlots = (slots) => {
+      const output = Array(24).fill(null);
+      if (!Array.isArray(slots)) return output;
+      slots.slice(0, 24).forEach((slot, index) => {
+        if (!slot?.itemId) return;
+        const item = getItemById(slot.itemId);
+        if (!item) return;
+        const qty = isStackable(item) ? Math.max(1, Number(slot.qty) || 1) : 1;
+        output[index] = { itemId: slot.itemId, qty };
+      });
+      return output;
+    };
+
+    const normalizeEquipment = (equipment) => {
+      const cleaned = {
+        weaponId: "weapon_short_sword",
+        armorId: "armor_cloth",
+        relic1Id: null,
+        relic2Id: null
+      };
+      if (equipment?.weaponId && getItemById(equipment.weaponId)?.type === "weapon") {
+        cleaned.weaponId = equipment.weaponId;
+      }
+      if (equipment?.armorId && getItemById(equipment.armorId)?.type === "armor") {
+        cleaned.armorId = equipment.armorId;
+      }
+      if (equipment?.relic1Id && getItemById(equipment.relic1Id)?.type === "relic") {
+        cleaned.relic1Id = equipment.relic1Id;
+      }
+      if (equipment?.relic2Id && getItemById(equipment.relic2Id)?.type === "relic") {
+        cleaned.relic2Id = equipment.relic2Id;
+      }
+      return cleaned;
+    };
+
+    const buildItemTooltip = (item, qty = 1) => {
+      if (!item) {
+        inventoryTooltip.textContent = "Passe o cursor sobre um item para ver detalhes.";
+        return;
+      }
+      const rarityText = item.rarity ? item.rarity.toUpperCase() : "—";
+      const header = `<h3>${item.name}</h3><p>${item.description || ""}</p>`;
+      const meta = `<p><strong>Tipo:</strong> ${item.type.toUpperCase()} • <strong>Raridade:</strong> ${rarityText}</p>`;
+      let stats = "";
+      if (item.type === "weapon") {
+        stats = `
+          <ul>
+            <li>Dano: ${item.stats.damage}</li>
+            <li>Stamina: ${item.stats.staminaCost}</li>
+            <li>Velocidade: ${item.stats.attackSpeed.toFixed(2)}</li>
+            <li>Alcance: ${item.stats.reach}</li>
+            <li>Peso: ${item.stats.weight}</li>
+          </ul>
+        `;
+      } else if (item.type === "armor") {
+        const profile = getRollProfile();
+        stats = `
+          <ul>
+            <li>Defesa: ${item.stats.defense}</li>
+            <li>Poise: +${item.stats.poiseBonus}</li>
+            <li>Peso: ${item.stats.weight}</li>
+            <li>I-frames: ${profile.iFrames.toFixed(2)}s</li>
+          </ul>
+        `;
+      } else if (item.type === "relic") {
+        const effects = item.stats?.effects?.length
+          ? item.stats.effects.map((effect) => `<li>${effect.label}</li>`).join("")
+          : "<li>Efeito desconhecido.</li>";
+        stats = `<ul>${effects}</ul>`;
+      } else if (item.type === "material" && item.stackable) {
+        stats = `<p>Quantidade: ${qty}</p>`;
+      }
+      inventoryTooltip.innerHTML = `${header}${meta}${stats}`;
+    };
+
+    const renderInventory = () => {
       const profile = getRollProfile();
       const weightText = `Peso ${player.equipLoad.toFixed(1)}/${EQUIP_LOAD.max} • Rolagem ${profile.label}`;
       inventoryWeight.textContent = weightText;
 
-      if (selectedSlot === "weapon") {
-        inventoryDetails.innerHTML = `
-          <h3>${item.name}</h3>
-          <p>${item.description}</p>
-          <ul>
-            <li>Dano: ${item.damage}</li>
-            <li>Stamina: ${item.staminaCost}</li>
-            <li>Velocidade: ${item.attackSpeed.toFixed(2)}</li>
-            <li>Poise: ${item.poiseDamage}</li>
-            <li>Alcance: ${item.reach}</li>
-            <li>Peso: ${item.weight}</li>
-            <li>Parry: ${item.canParry ? "Sim" : "Não"}</li>
-          </ul>
-        `;
-      } else if (selectedSlot === "armor") {
-        inventoryDetails.innerHTML = `
-          <h3>${item.name}</h3>
-          <p>${item.description}</p>
-          <ul>
-            <li>Defesa: ${item.defense}</li>
-            <li>Poise: +${item.poiseBonus}</li>
-            <li>Peso: ${item.weight}</li>
-            <li>I-frames: ${profile.iFrames.toFixed(2)}s</li>
-          </ul>
-        `;
-      } else if (selectedSlot === "consumable") {
-        inventoryDetails.innerHTML = `
-          <h3>${item.name}</h3>
-          <p>${item.description}</p>
-          <ul>
-            <li>Quantidade: ${player.estus}/${player.estusMax}</li>
-          </ul>
-        `;
-      } else {
-        inventoryDetails.innerHTML = `
-          <h3>${item.name}</h3>
-          <p>${item.description}</p>
-        `;
-      }
+      inventoryGridSlots.forEach((slotEl) => {
+        const index = Number(slotEl.dataset.index);
+        const slot = gameState.inventorySlots[index];
+        slotEl.classList.remove("rarity-common", "rarity-uncommon", "rarity-rare", "rarity-epic");
+        slotEl.classList.toggle("is-empty", !slot);
+        const iconEl = slotEl.querySelector(".slot-icon");
+        const qtyEl = slotEl.querySelector(".slot-qty");
+        if (!slot || !iconEl || !qtyEl) {
+          if (iconEl) iconEl.textContent = "";
+          if (qtyEl) qtyEl.textContent = "";
+          return;
+        }
+        const item = getItemById(slot.itemId);
+        if (!item) return;
+        iconEl.textContent = item.icon || "•";
+        qtyEl.textContent = isStackable(item) && slot.qty > 1 ? `x${slot.qty}` : "";
+        slotEl.classList.add(`rarity-${item.rarity}`);
+      });
+
+      equipmentSlots.forEach((slotEl) => {
+        const slotKey = slotEl.dataset.equip;
+        const slotItemEl = slotEl.querySelector(".slot-item");
+        let itemId = null;
+        if (slotKey === "weapon") itemId = gameState.equipment.weaponId;
+        if (slotKey === "armor") itemId = gameState.equipment.armorId;
+        if (slotKey === "relic1") itemId = gameState.equipment.relic1Id;
+        if (slotKey === "relic2") itemId = gameState.equipment.relic2Id;
+        const item = getItemById(itemId);
+        slotItemEl.textContent = item ? item.name : "—";
+      });
+
+      buildItemTooltip(null);
     };
 
-    loadInventory();
+    const grantItem = (itemType, itemId) => {
+      const item = getItemById(itemId);
+      if (!item || item.type !== itemType) {
+        toast("Item desconhecido.");
+        return false;
+      }
+      const collected = addItemToInventory(itemId, 1);
+      if (!collected) return false;
+      toast(`Você obteve: ${item.name}.`);
+      if (item.type === "weapon" && !gameState.equipment.weaponId) {
+        gameState.equipment.weaponId = item.id;
+      }
+      if (item.type === "armor" && !gameState.equipment.armorId) {
+        gameState.equipment.armorId = item.id;
+      }
+      refreshEquipmentStats();
+      if (state === "inventory") renderInventory();
+      requestSave("inventory");
+      return true;
+    };
+
     refreshEquipmentStats();
+
+    // ===== Inventory Drag & Drop =====
+    const getEquipSlotType = (slotKey) => (slotKey.startsWith("relic") ? "relic" : slotKey);
+
+    const getEquipSlotItemId = (slotKey) => {
+      if (slotKey === "weapon") return gameState.equipment.weaponId;
+      if (slotKey === "armor") return gameState.equipment.armorId;
+      if (slotKey === "relic1") return gameState.equipment.relic1Id;
+      if (slotKey === "relic2") return gameState.equipment.relic2Id;
+      return null;
+    };
+
+    const setEquipSlotItemId = (slotKey, itemId) => {
+      if (slotKey === "weapon") gameState.equipment.weaponId = itemId;
+      if (slotKey === "armor") gameState.equipment.armorId = itemId;
+      if (slotKey === "relic1") gameState.equipment.relic1Id = itemId;
+      if (slotKey === "relic2") gameState.equipment.relic2Id = itemId;
+    };
+
+    // Regras de equipamento: slot aceita apenas o tipo correspondente.
+    const canEquipItemToSlot = (item, slotKey) => item?.type === getEquipSlotType(slotKey);
+
+    const startInventoryDrag = (source, item, qty) => {
+      if (!item) return;
+      dragState.active = true;
+      dragState.source = source;
+      dragState.item = item;
+      dragState.qty = qty;
+      inventoryDragGhost.textContent = `${item.icon || "•"} ${item.name}`;
+      inventoryDragGhost.classList.remove("hidden");
+    };
+
+    const updateInventoryGhost = (event) => {
+      if (!dragState.active) return;
+      inventoryDragGhost.style.left = `${event.clientX}px`;
+      inventoryDragGhost.style.top = `${event.clientY}px`;
+    };
+
+    const endInventoryDrag = () => {
+      dragState.active = false;
+      dragState.source = null;
+      dragState.item = null;
+      dragState.qty = 0;
+      inventoryDragGhost.classList.add("hidden");
+    };
+
+    const dropFromGridToGrid = (sourceIndex, targetIndex) => {
+      if (sourceIndex === targetIndex) return true;
+      const sourceSlot = gameState.inventorySlots[sourceIndex];
+      const targetSlot = gameState.inventorySlots[targetIndex];
+      if (!sourceSlot) return false;
+      const sourceItem = getItemById(sourceSlot.itemId);
+      if (targetSlot && isStackable(sourceItem) && sourceSlot.itemId === targetSlot.itemId) {
+        targetSlot.qty += sourceSlot.qty;
+        gameState.inventorySlots[sourceIndex] = null;
+        return true;
+      }
+      gameState.inventorySlots[targetIndex] = sourceSlot;
+      gameState.inventorySlots[sourceIndex] = targetSlot || null;
+      return true;
+    };
+
+    const dropFromGridToEquip = (sourceIndex, equipSlot) => {
+      const sourceSlot = gameState.inventorySlots[sourceIndex];
+      if (!sourceSlot) return false;
+      const item = getItemById(sourceSlot.itemId);
+      if (!canEquipItemToSlot(item, equipSlot)) return false;
+      const currentEquipId = getEquipSlotItemId(equipSlot);
+      setEquipSlotItemId(equipSlot, sourceSlot.itemId);
+      gameState.inventorySlots[sourceIndex] = currentEquipId ? { itemId: currentEquipId, qty: 1 } : null;
+      return true;
+    };
+
+    const dropFromEquipToGrid = (sourceSlotKey, targetIndex) => {
+      const sourceItemId = getEquipSlotItemId(sourceSlotKey);
+      if (!sourceItemId) return false;
+      const targetSlot = gameState.inventorySlots[targetIndex];
+      const sourceItem = getItemById(sourceItemId);
+      if (targetSlot && isStackable(sourceItem) && targetSlot.itemId === sourceItemId) {
+        targetSlot.qty += 1;
+        setEquipSlotItemId(sourceSlotKey, null);
+        return true;
+      }
+      if (targetSlot) {
+        const targetItem = getItemById(targetSlot.itemId);
+        if (!canEquipItemToSlot(targetItem, sourceSlotKey)) return false;
+        setEquipSlotItemId(sourceSlotKey, targetSlot.itemId);
+      } else {
+        setEquipSlotItemId(sourceSlotKey, null);
+      }
+      gameState.inventorySlots[targetIndex] = { itemId: sourceItemId, qty: 1 };
+      return true;
+    };
+
+    const dropFromEquipToEquip = (sourceSlotKey, targetSlotKey) => {
+      if (sourceSlotKey === targetSlotKey) return true;
+      const sourceItemId = getEquipSlotItemId(sourceSlotKey);
+      const targetItemId = getEquipSlotItemId(targetSlotKey);
+      const sourceItem = getItemById(sourceItemId);
+      const targetItem = getItemById(targetItemId);
+      if (!canEquipItemToSlot(sourceItem, targetSlotKey)) return false;
+      if (targetItem && !canEquipItemToSlot(targetItem, sourceSlotKey)) return false;
+      setEquipSlotItemId(targetSlotKey, sourceItemId);
+      setEquipSlotItemId(sourceSlotKey, targetItemId || null);
+      return true;
+    };
+
+    const handleInventoryDrop = (event) => {
+      if (!dragState.active) return;
+      const target = document.elementFromPoint(event.clientX, event.clientY);
+      const gridTarget = target?.closest(".inventory-grid-slot");
+      const equipTarget = target?.closest(".equipment-slot");
+      const source = dragState.source;
+      let success = false;
+      if (gridTarget) {
+        const targetIndex = Number(gridTarget.dataset.index);
+        if (source.type === "grid") {
+          success = dropFromGridToGrid(source.index, targetIndex);
+        } else if (source.type === "equip") {
+          success = dropFromEquipToGrid(source.slotKey, targetIndex);
+        }
+      } else if (equipTarget) {
+        const targetSlotKey = equipTarget.dataset.equip;
+        if (source.type === "grid") {
+          success = dropFromGridToEquip(source.index, targetSlotKey);
+        } else if (source.type === "equip") {
+          success = dropFromEquipToEquip(source.slotKey, targetSlotKey);
+        }
+      }
+      if (!success) {
+        renderInventory();
+      }
+      refreshEquipmentStats();
+      renderInventory();
+      if (success) {
+        requestSave("inventory_drag");
+      }
+      endInventoryDrag();
+    };
+
+    const quickEquipFromGrid = (index) => {
+      const slot = gameState.inventorySlots[index];
+      if (!slot) return;
+      const item = getItemById(slot.itemId);
+      if (!item) return;
+      if (item.type === "weapon") {
+        dropFromGridToEquip(index, "weapon");
+      } else if (item.type === "armor") {
+        dropFromGridToEquip(index, "armor");
+      } else if (item.type === "relic") {
+        const targetSlot = gameState.equipment.relic1Id ? (gameState.equipment.relic2Id ? "relic1" : "relic2") : "relic1";
+        dropFromGridToEquip(index, targetSlot);
+      }
+      refreshEquipmentStats();
+      renderInventory();
+      requestSave("inventory_quick_equip");
+    };
+
+    const quickMoveFromEquip = (slotKey) => {
+      const sourceItemId = getEquipSlotItemId(slotKey);
+      if (!sourceItemId) return;
+      const emptyIndex = gameState.inventorySlots.findIndex((slot) => !slot);
+      if (emptyIndex === -1) {
+        toast("Inventário cheio.");
+        return;
+      }
+      dropFromEquipToGrid(slotKey, emptyIndex);
+      refreshEquipmentStats();
+      renderInventory();
+      requestSave("inventory_quick_move");
+    };
+
+    inventoryGridSlots.forEach((slotEl) => {
+      slotEl.addEventListener("pointerdown", (event) => {
+        if (state !== "inventory" || event.button !== 0) return;
+        const index = Number(slotEl.dataset.index);
+        const slot = gameState.inventorySlots[index];
+        if (!slot) return;
+        const item = getItemById(slot.itemId);
+        startInventoryDrag({ type: "grid", index }, item, slot.qty);
+        updateInventoryGhost(event);
+        event.preventDefault();
+      });
+      slotEl.addEventListener("pointerenter", () => {
+        const index = Number(slotEl.dataset.index);
+        const slot = gameState.inventorySlots[index];
+        if (!slot) return;
+        const item = getItemById(slot.itemId);
+        buildItemTooltip(item, slot.qty);
+      });
+      slotEl.addEventListener("pointerleave", () => {
+        buildItemTooltip(null);
+      });
+      slotEl.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        if (state !== "inventory") return;
+        quickEquipFromGrid(Number(slotEl.dataset.index));
+      });
+      slotEl.addEventListener("click", (event) => {
+        if (state !== "inventory") return;
+        if (event.shiftKey) {
+          quickEquipFromGrid(Number(slotEl.dataset.index));
+        }
+      });
+    });
+
+    equipmentSlots.forEach((slotEl) => {
+      slotEl.addEventListener("pointerdown", (event) => {
+        if (state !== "inventory" || event.button !== 0) return;
+        const slotKey = slotEl.dataset.equip;
+        const itemId = getEquipSlotItemId(slotKey);
+        if (!itemId) return;
+        const item = getItemById(itemId);
+        startInventoryDrag({ type: "equip", slotKey }, item, 1);
+        updateInventoryGhost(event);
+        event.preventDefault();
+      });
+      slotEl.addEventListener("pointerenter", () => {
+        const slotKey = slotEl.dataset.equip;
+        const itemId = getEquipSlotItemId(slotKey);
+        if (!itemId) return;
+        const item = getItemById(itemId);
+        buildItemTooltip(item, 1);
+      });
+      slotEl.addEventListener("pointerleave", () => {
+        buildItemTooltip(null);
+      });
+      slotEl.addEventListener("click", (event) => {
+        if (state !== "inventory") return;
+        if (event.shiftKey) {
+          quickMoveFromEquip(slotEl.dataset.equip);
+        }
+      });
+    });
+
+    inventoryOverlay.addEventListener("pointermove", updateInventoryGhost);
+    window.addEventListener("pointerup", (event) => {
+      if (state !== "inventory") return;
+      handleInventoryDrop(event);
+    });
 
     let currentZoneId = "ruins";
     let currentZone = zones.find((zone) => zone.id === currentZoneId) || zones[0];
@@ -3019,8 +3358,8 @@ import {
               id: "boss_reward",
               x: arena.boss.x - 40,
               y: arena.boss.y + arena.boss.h - 18,
-              type: "relic",
-              itemId: "relic_iron",
+              type: "material",
+              itemId: "material_ashen_core",
               isBossReward: true
             });
           }
@@ -3236,8 +3575,8 @@ import {
     }
   
     // ===== Combat =====
-    const getEquippedWeapon = () => getWeapon(inventoryState.equipment.weapon);
-    const getEquippedArmor = () => getArmor(inventoryState.equipment.armor);
+    const getEquippedWeapon = () => getWeaponItem(gameState.equipment.weaponId);
+    const getEquippedArmor = () => getArmorItem(gameState.equipment.armorId);
 
     function staminaSpend(amount){
       if (player.st < amount) return false;
@@ -3245,17 +3584,21 @@ import {
       return true;
     }
   
+    const getWeaponPoiseDamage = (weapon) => Math.round((weapon.stats?.damage || 1) * 1.2);
+    const weaponAllowsParry = (weapon) => weapon?.canParry !== false;
+
     function startAttack(){
       const weapon = getEquippedWeapon();
       if (player.isDrinking) return;
       if (player.attackCD > 0 || player.rollT > 0 || player.hurtT > 0 || player.parryT > 0) return;
-      if (!staminaSpend(weapon.staminaCost)) { toast("Sem stamina!"); return; }
+      if (!staminaSpend(weapon.stats?.staminaCost || 0)) { toast("Sem stamina!"); return; }
       const downHeld = keys.has("s") || keys.has("arrowdown");
       const plungeAttack = downHeld && !player.onGround;
       const baseActive = 0.22;
       const baseCooldown = 0.46;
-      player.attackT = baseActive / weapon.attackSpeed;      // active window
-      player.attackCD = baseCooldown / weapon.attackSpeed;   // total cooldown
+      const attackSpeed = weapon.stats?.attackSpeed || 1;
+      player.attackT = baseActive / attackSpeed;      // active window
+      player.attackCD = baseCooldown / attackSpeed;   // total cooldown
       player.attackType = plungeAttack ? "plunge" : "normal";
       player.attackHit = false;
       if (plungeAttack){
@@ -3284,7 +3627,7 @@ import {
         toast("Parry bloqueado.");
         return;
       }
-      if (!weapon.canParry) {
+      if (!weaponAllowsParry(weapon)) {
         toast("Esta arma não permite aparar.");
         return;
       }
@@ -3313,8 +3656,8 @@ import {
   
     function getAttackHitbox(){
       const weapon = getEquippedWeapon();
-      const range = weapon.reach;
-      const w = 34 + Math.round((weapon.reach - 30) * 0.3);
+      const range = weapon.stats?.reach || 30;
+      const w = 34 + Math.round((range - 30) * 0.3);
       const h = 26;
       const x = player.face === 1 ? (player.x + player.w + range - w) : (player.x - range);
       const y = player.y + 12;
@@ -3323,7 +3666,8 @@ import {
 
     function getPlungeHitbox(){
       const weapon = getEquippedWeapon();
-      const w = 22 + Math.round((weapon.reach - 30) * 0.2);
+      const range = weapon.stats?.reach || 30;
+      const w = 22 + Math.round((range - 30) * 0.2);
       const h = 34;
       const x = player.x + player.w / 2 - w / 2;
       const y = player.y + player.h - 6;
@@ -3382,7 +3726,7 @@ import {
       }
       if (enemy.dropItem){
         const { type, itemId } = enemy.dropItem;
-        if (!isItemOwned(type, itemId)) {
+        if (!isItemInInventory(itemId)) {
           createChunkDrop(chunk, {
             x: enemy.x + enemy.w / 2 - 10,
             y: enemy.y + enemy.h - 18,
@@ -3404,14 +3748,11 @@ import {
       }
       const commonDropChance = 0.03;
       if (Math.random() <= commonDropChance){
-        const candidates = ["bitter_tonic", "ash_draught"].filter((id) => !isItemOwned("consumable", id));
-        if (!candidates.length) return;
-        const itemId = candidates[Math.floor(Math.random() * candidates.length)];
         createChunkDrop(chunk, {
           x: enemy.x + enemy.w / 2 - 10,
           y: enemy.y + enemy.h - 18,
-          type: "consumable",
-          itemId
+          type: "material",
+          itemId: "material_iron_shard"
         });
         toast("Algo caiu ao chão.");
       }
@@ -3452,7 +3793,7 @@ import {
   
     function playerTakeDamage(amount, fromX, attacker = null){
       const weapon = getEquippedWeapon();
-      if (player.parryT > 0 && weapon.canParry) {
+      if (player.parryT > 0 && weaponAllowsParry(weapon)) {
         player.parryT = 0;
         player.parryCD = Math.max(player.parryCD, 0.4);
         if (attacker) {
@@ -3471,13 +3812,13 @@ import {
       }
       if (player.invulT > 0 || player.hurtT > 0) return;
       const armor = getEquippedArmor();
-      const mitigated = Math.max(1, amount - armor.defense);
+      const mitigated = Math.max(1, amount - (armor.stats?.defense || 0));
       player.hp -= mitigated;
       player.hp = Math.max(0, player.hp);
       player.hurtT = 0.28;
       player.invulT = 0.15;
       // knockback
-      const poiseFactor = 1 - Math.min(0.35, armor.poiseBonus / 40);
+      const poiseFactor = 1 - Math.min(0.35, (armor.stats?.poiseBonus || 0) / 40);
       const k = sign(player.x - fromX) || 1;
       player.vx = 360 * k * poiseFactor;
       player.vy = -260 * poiseFactor;
@@ -3611,11 +3952,12 @@ import {
             drop.active = false;
             if (drop.isBossReward){
               if (!bossRewardClaimed){
-                player.estusMax += 1;
+                player.estusBaseMax = (player.estusBaseMax || player.estusMax) + 1;
+                refreshEquipmentStats();
                 player.estus = player.estusMax;
                 bossRewardClaimed = true;
                 localStorage.setItem(bossRewardClaimedKey, "true");
-                toast("Coração de Ferro obtido. Estus máximo +1.");
+                toast("Núcleo cinerário absorvido. Estus máximo +1.");
               }
             }
             if (recordPickup && drop.id) {
@@ -3825,8 +4167,8 @@ import {
             id: "boss_reward",
             x: boss.x + boss.w / 2 - 12,
             y: boss.y + boss.h - 18,
-            type: "relic",
-            itemId: "relic_iron",
+            type: "material",
+            itemId: "material_ashen_core",
             isBossReward: true
           });
         }
@@ -3977,10 +4319,13 @@ import {
   
     function resetAll(options = {}){
       if (options.resetInventory){
-        const fresh = defaultInventoryState();
-        inventoryState.equipment = fresh.equipment;
-        inventoryState.owned = fresh.owned;
-        saveInventory();
+        gameState.inventorySlots = createDefaultInventorySlots();
+        gameState.equipment = {
+          weaponId: "weapon_short_sword",
+          armorId: "armor_cloth",
+          relic1Id: null,
+          relic2Id: null
+        };
         collectedPickups.clear();
         saveCollectedPickups(collectedPickups);
         defeatedMiniBosses.clear();
@@ -4034,7 +4379,7 @@ import {
       const jumpHeld = keys.has("w") || keys.has("arrowup") || keys.has(" ");
       const restart = keys.has("r");
       player.wallJumpUnlocked = gameState.unlocks.wallJump
-        && (player.abilities.wallJump || inventoryState.owned.relic.includes("relic_iron"));
+        && (player.abilities.wallJump || player.wallJumpRelicBonus > 0);
   
       if (restart) resetAll();
   
@@ -4079,7 +4424,7 @@ import {
       }
   
       // Stamina regen
-      const relicBonus = inventoryState.equipment.relic === "relic_ember" ? 6 : 0;
+      const relicBonus = player.relicStaminaBonus || 0;
       const regen = (player.rollT > 0 || player.attackCD > 0 || player.hurtT > 0) ? 22 + relicBonus : 38 + relicBonus;
       player.st = clamp(player.st + regen * dt, 0, player.stMax);
   
@@ -4244,11 +4589,13 @@ import {
         const isPlunge = player.attackType === "plunge";
         const ah = isPlunge ? getPlungeHitbox() : getAttackHitbox();
         const weapon = getEquippedWeapon();
+        const weaponDamage = weapon.stats?.damage || 1;
+        const weaponPoiseDamage = getWeaponPoiseDamage(weapon);
         for (const e of activeEnemies){
           if (e.hp <= 0) continue;
           const eb = {x: e.x, y: e.y, w: e.w, h: e.h};
           if (rectsOverlap(ah, eb)){
-            const result = damageEntity(e, weapon.damage, 260 * player.face, weapon.poiseDamage);
+            const result = damageEntity(e, weaponDamage, 260 * player.face, weaponPoiseDamage);
             if (result.hit){
               triggerHitStop(0.06);
               triggerShake(2, 4, 0.12);
@@ -4271,7 +4618,7 @@ import {
           }
         }
         if (boss && boss.hp > 0 && rectsOverlap(ah, { x: boss.x, y: boss.y, w: boss.w, h: boss.h })){
-          const result = bossTakeDamage(weapon.damage, 180 * player.face, weapon.poiseDamage + 10);
+          const result = bossTakeDamage(weaponDamage, 180 * player.face, weaponPoiseDamage + 10);
           if (result.hit){
             triggerHitStop(0.07);
             triggerShake(3, 5, 0.12);
@@ -4446,7 +4793,7 @@ import {
           weapon: "rgba(240,210,120,.9)",
           armor: "rgba(140,200,255,.9)",
           relic: "rgba(210,170,255,.9)",
-          consumable: "rgba(120,220,160,.9)",
+          material: "rgba(190,200,220,.9)",
           ability: "rgba(180,220,255,.9)",
           quest: "rgba(255,214,120,.9)"
         };
