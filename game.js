@@ -73,6 +73,10 @@ import {
   const questList = document.getElementById("questList");
   const questDetails = document.getElementById("questDetails");
   const questHint = document.getElementById("questHint");
+  const trainerOverlay = document.getElementById("trainerOverlay");
+  const trainerList = document.getElementById("trainerList");
+  const trainerDetails = document.getElementById("trainerDetails");
+  const trainerHint = document.getElementById("trainerHint");
   const toast = (msg, ms = 1300) => {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -169,6 +173,55 @@ import {
     }
   ];
   const QUEST_ORDER = QUEST_DEFS.map((quest) => quest.id);
+  const TRAINER_MENU = [
+    { id: "trainer_skills", title: "Aprender técnicas", desc: "Forje novas artes com ouro.", action: "skills" },
+    { id: "trainer_about", title: "Sobre as ruínas", desc: "Histórias gravadas nas pedras.", action: "about" },
+    { id: "trainer_exit", title: "Sair", desc: "Retornar à jornada.", action: "exit" }
+  ];
+  const TRAINER_SKILLS = [
+    {
+      id: "sprint",
+      title: "Sprint",
+      desc: "Acelera a passada e atravessa os corredores em fúria.",
+      price: 150,
+      unlockKey: "sprint"
+    },
+    {
+      id: "wallJump",
+      title: "Wall Jump",
+      desc: "Salte entre paredes e alcance alturas esquecidas.",
+      price: 300,
+      unlockKey: "wallJump"
+    },
+    {
+      id: "doubleJump",
+      title: "Double Jump",
+      desc: "Conceda um novo impulso no ar antes de cair.",
+      price: 500,
+      unlockKey: "doubleJump"
+    },
+    {
+      id: "airDash",
+      title: "Dash Aéreo",
+      desc: "Deslize pelos céus com um avanço relâmpago.",
+      price: 700,
+      unlockKey: "airDash"
+    },
+    {
+      id: "pogo",
+      title: "Pogo",
+      desc: "Ressalte com a lâmina para atravessar espinhos.",
+      price: 900,
+      unlockKey: "pogo"
+    },
+    {
+      id: "parry",
+      title: "Parry",
+      desc: "Transforme a defesa perfeita em abertura mortal.",
+      price: 250,
+      unlockKey: "parry"
+    }
+  ];
 
   const normalizeQuestData = (saved = {}) => {
     const output = {};
@@ -191,16 +244,30 @@ import {
     return output;
   };
 
+  const normalizeUnlocks = (saved = {}) => ({
+    sprint: Boolean(saved.sprint),
+    wallJump: Boolean(saved.wallJump),
+    doubleJump: Boolean(saved.doubleJump),
+    airDash: Boolean(saved.airDash),
+    pogo: Boolean(saved.pogo),
+    parry: Boolean(saved.parry)
+  });
+
   const createDefaultGameState = () => ({
     gold: 0,
     questDrops: { fragment: 0 },
-    quests: normalizeQuestData()
+    quests: normalizeQuestData(),
+    unlocks: normalizeUnlocks()
   });
 
   let gameState = createDefaultGameState();
   let questView = "menu";
   let questIndex = 0;
   let questListItems = [];
+  let trainerView = "intro";
+  let trainerIndex = 0;
+  let trainerListItems = [];
+  let trainerSelectedSkill = null;
 
   const setStatus = (message) => {
     authStatus.textContent = message;
@@ -344,6 +411,16 @@ import {
   const hideQuestDialog = () => {
     questOverlay.classList.add("hidden");
     questOverlay.setAttribute("aria-hidden", "true");
+  };
+
+  const showTrainerDialog = () => {
+    trainerOverlay.classList.remove("hidden");
+    trainerOverlay.setAttribute("aria-hidden", "false");
+  };
+
+  const hideTrainerDialog = () => {
+    trainerOverlay.classList.add("hidden");
+    trainerOverlay.setAttribute("aria-hidden", "true");
   };
 
   const getQuestList = () => QUEST_ORDER.map((id) => gameState.quests[id]).filter(Boolean);
@@ -563,6 +640,201 @@ import {
     renderQuestDetails(questListItems[questIndex]);
   };
 
+  const setTrainerView = (view) => {
+    trainerView = view;
+    trainerIndex = 0;
+    renderTrainerDialog();
+  };
+
+  const getTrainerSkillStatus = (skill) => gameState.unlocks[skill.unlockKey] ? "Aprendida" : "Não aprendida";
+
+  const renderTrainerDetails = (item) => {
+    if (trainerView === "intro") {
+      trainerDetails.innerHTML = `
+        <h3>Bem-vinda, penitente.</h3>
+        <p>Há técnicas esquecidas nas ruínas. Com ouro, posso reavivá-las em sua memória.</p>
+        <div class="trainer-meta">Selecione para continuar</div>
+      `;
+      return;
+    }
+    if (trainerView === "menu") {
+      trainerDetails.innerHTML = `
+        <h3>${item.title}</h3>
+        <p>${item.desc}</p>
+        <div class="trainer-meta">Escolha seu próximo passo</div>
+      `;
+      return;
+    }
+    if (trainerView === "about") {
+      trainerDetails.innerHTML = `
+        <h3>Sobre as ruínas</h3>
+        <p>Estas pedras guardam ecos de juramentos antigos. Cada técnica é uma memória de guerra, perdida no tempo.</p>
+        <div class="trainer-meta">A honra vive nas ruínas</div>
+      `;
+      return;
+    }
+    if (trainerView === "skills") {
+      const statusLabel = getTrainerSkillStatus(item);
+      trainerDetails.innerHTML = `
+        <h3>${item.title}</h3>
+        <p>${item.desc}</p>
+        <div class="trainer-meta">Preço: ${item.price} ouro</div>
+        <div class="trainer-meta">Status: ${statusLabel}</div>
+      `;
+      return;
+    }
+    if (trainerView === "confirm" && trainerSelectedSkill) {
+      trainerDetails.innerHTML = `
+        <h3>Confirmar treinamento</h3>
+        <p>Deseja aprender ${trainerSelectedSkill.title}? O pagamento é definitivo.</p>
+        <div class="trainer-meta">Preço: ${trainerSelectedSkill.price} ouro</div>
+        <div class="trainer-meta">Seu ouro: ${gameState.gold}</div>
+      `;
+      return;
+    }
+    if (trainerView === "learned" && trainerSelectedSkill) {
+      trainerDetails.innerHTML = `
+        <h3>Técnica aprendida</h3>
+        <p>${trainerSelectedSkill.title} agora flui em seus movimentos.</p>
+        <div class="trainer-meta">Use com sabedoria.</div>
+      `;
+      return;
+    }
+    if (trainerView === "noGold" && trainerSelectedSkill) {
+      trainerDetails.innerHTML = `
+        <h3>Ouro insuficiente</h3>
+        <p>${trainerSelectedSkill.title} exige mais do que você possui agora.</p>
+        <div class="trainer-meta">Retorne quando estiver pronta.</div>
+      `;
+    }
+  };
+
+  const renderTrainerDialog = () => {
+    if (!trainerOverlay) return;
+    if (trainerView === "intro") {
+      trainerListItems = [{ id: "intro_continue", title: "Continuar", desc: "Ouvir o mentor.", action: "continue" }];
+      trainerHint.textContent = "↑ ↓ navegar • Enter continuar • Esc sair";
+    } else if (trainerView === "menu") {
+      trainerListItems = TRAINER_MENU;
+      trainerHint.textContent = "↑ ↓ navegar • Enter selecionar • Esc sair";
+    } else if (trainerView === "about") {
+      trainerListItems = [{ id: "about_back", title: "Voltar", desc: "Retornar ao menu.", action: "back" }];
+      trainerHint.textContent = "Enter voltar • Esc sair";
+    } else if (trainerView === "skills") {
+      trainerListItems = TRAINER_SKILLS;
+      trainerHint.textContent = "↑ ↓ navegar • Enter aprender • Esc sair";
+    } else if (trainerView === "confirm") {
+      trainerListItems = [
+        { id: "confirm_yes", title: "Confirmar", desc: "Firmar a técnica.", action: "confirm" },
+        { id: "confirm_no", title: "Cancelar", desc: "Retornar à lista.", action: "cancel" }
+      ];
+      trainerHint.textContent = "↑ ↓ navegar • Enter selecionar • Esc sair";
+    } else if (trainerView === "learned" || trainerView === "noGold") {
+      trainerListItems = [{ id: "result_back", title: "Voltar", desc: "Retornar às técnicas.", action: "back" }];
+      trainerHint.textContent = "Enter voltar • Esc sair";
+    }
+
+    trainerIndex = Math.max(0, Math.min(trainerIndex, trainerListItems.length - 1));
+    trainerList.innerHTML = "";
+    trainerListItems.forEach((item, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "trainer-item";
+      button.dataset.index = String(index);
+      if (index === trainerIndex) button.classList.add("is-selected");
+      if (trainerView === "skills") {
+        const statusLabel = getTrainerSkillStatus(item);
+        button.dataset.skillId = item.id;
+        if (gameState.unlocks[item.unlockKey]) {
+          button.classList.add("is-disabled");
+        }
+        button.innerHTML = `
+          <div class="trainer-item-title">${item.title}</div>
+          <div class="trainer-item-meta">${item.desc}</div>
+          <div class="trainer-item-meta">Preço: ${item.price} ouro</div>
+          <div class="trainer-item-action">${statusLabel}</div>
+        `;
+      } else {
+        button.dataset.action = item.action;
+        button.innerHTML = `
+          <div class="trainer-item-title">${item.title}</div>
+          <div class="trainer-item-meta">${item.desc}</div>
+        `;
+      }
+      trainerList.appendChild(button);
+    });
+    renderTrainerDetails(trainerListItems[trainerIndex]);
+  };
+
+  const unlockTrainerSkill = (skill) => {
+    gameState.unlocks[skill.unlockKey] = true;
+    if (skill.unlockKey === "wallJump") player.abilities.wallJump = true;
+    if (skill.unlockKey === "pogo") player.abilities.pogo = true;
+    requestSave("trainer");
+  };
+
+  const handleTrainerAction = (item) => {
+    if (!item) return;
+    if (trainerView === "intro") {
+      setTrainerView("menu");
+      return;
+    }
+    if (trainerView === "menu") {
+      if (item.action === "skills") {
+        setTrainerView("skills");
+        return;
+      }
+      if (item.action === "about") {
+        setTrainerView("about");
+        return;
+      }
+      if (item.action === "exit") {
+        setState("game");
+      }
+      return;
+    }
+    if (trainerView === "about") {
+      setTrainerView("menu");
+      return;
+    }
+    if (trainerView === "skills") {
+      if (gameState.unlocks[item.unlockKey]) {
+        toast("Técnica já aprendida.");
+        return;
+      }
+      trainerSelectedSkill = item;
+      setTrainerView("confirm");
+      return;
+    }
+    if (trainerView === "confirm") {
+      if (item.action === "cancel") {
+        setTrainerView("skills");
+        return;
+      }
+      if (item.action === "confirm" && trainerSelectedSkill) {
+        if (gameState.gold < trainerSelectedSkill.price) {
+          toast("Ouro insuficiente");
+          setTrainerView("noGold");
+          return;
+        }
+        gameState.gold -= trainerSelectedSkill.price;
+        unlockTrainerSkill(trainerSelectedSkill);
+        toast("Técnica aprendida");
+        setTrainerView("learned");
+      }
+      return;
+    }
+    if (trainerView === "learned" || trainerView === "noGold") {
+      setTrainerView("skills");
+    }
+  };
+
+  const updateTrainerInput = (delta) => {
+    if (!trainerListItems.length) return;
+    trainerIndex = (trainerIndex + delta + trainerListItems.length) % trainerListItems.length;
+    renderTrainerDialog();
+  };
+
   questList.addEventListener("mousemove", (event) => {
     if (state !== "dialog_quests") return;
     const item = event.target.closest(".quest-item");
@@ -610,11 +882,36 @@ import {
     }
   });
 
+  trainerList.addEventListener("mousemove", (event) => {
+    if (state !== "dialog_trainer") return;
+    const item = event.target.closest(".trainer-item");
+    if (!item) return;
+    const index = Number(item.dataset.index);
+    if (Number.isNaN(index) || index === trainerIndex) return;
+    trainerIndex = index;
+    renderTrainerDialog();
+  });
+
+  trainerList.addEventListener("click", (event) => {
+    if (state !== "dialog_trainer") return;
+    const itemEl = event.target.closest(".trainer-item");
+    if (!itemEl) return;
+    const index = Number(itemEl.dataset.index);
+    if (Number.isNaN(index)) return;
+    trainerIndex = index;
+    renderTrainerDialog();
+    const item = trainerListItems[trainerIndex];
+    handleTrainerAction(item);
+  });
+
   const setState = (next) => {
     if (state === next) return;
     state = next;
     if (state !== "dialog_quests") {
       hideQuestDialog();
+    }
+    if (state !== "dialog_trainer") {
+      hideTrainerDialog();
     }
     if (state === "game") {
       hidePause();
@@ -630,6 +927,14 @@ import {
       stopGame();
       showQuestDialog();
       renderQuestDialog();
+    } else if (state === "dialog_trainer") {
+      hidePause();
+      hideInventory();
+      showGame();
+      stopMenuLoop();
+      stopGame();
+      showTrainerDialog();
+      renderTrainerDialog();
     } else if (state === "pause") {
       hideInventory();
       showGame();
@@ -744,6 +1049,7 @@ import {
     gold: gameState.gold,
     lastBonfireId: player.checkpoint?.id || null,
     abilities: { ...player.abilities },
+    unlocks: { ...gameState.unlocks },
     visitedZones: [...visitedZones],
     questDrops: { ...gameState.questDrops },
     quests: { ...gameState.quests },
@@ -868,6 +1174,7 @@ import {
       gameState.questDrops = { fragment: 0 };
     }
     gameState.quests = normalizeQuestData(data.quests);
+    gameState.unlocks = normalizeUnlocks(data.unlocks);
     playtimeSeconds = Number.isFinite(data.playtimeSeconds) ? data.playtimeSeconds : 0;
     autosaveTimer = 0;
     if (savedCheckpoint) {
@@ -1864,7 +2171,13 @@ import {
         if (key === "i" && !e.repeat) input.execute = true;
         if (key === "l" && !e.repeat) input.parry = true;
         if (key === "shift" && !e.repeat) input.dash = true;
-        if (key === "control") input.sprint = true;
+        if (key === "control" && !e.repeat) {
+          if (gameState.unlocks.sprint) {
+            input.sprint = true;
+          } else {
+            toast("Sprint bloqueado.");
+          }
+        }
         if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key)) e.preventDefault();
         return;
       }
@@ -1945,6 +2258,20 @@ import {
           } else {
             setState("game");
           }
+        }
+        return;
+      }
+      if (state === "dialog_trainer") {
+        if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
+        if (!canProcessUiInput(e)) return;
+        if (key === "arrowup") updateTrainerInput(-1);
+        if (key === "arrowdown") updateTrainerInput(1);
+        if (key === "enter") {
+          const item = trainerListItems[trainerIndex];
+          handleTrainerAction(item);
+        }
+        if (key === "escape") {
+          setState("game");
         }
         return;
       }
@@ -2096,6 +2423,7 @@ import {
         dashT: 0,
         dashDir: 1,
         dashAvailable: true,
+        doubleJumpAvailable: false,
         coyoteTimer: 0,
         jumpBufferTimer: 0,
         jumpHoldTimer: 0,
@@ -2280,7 +2608,8 @@ import {
           { id: "pickup_long_sword", type: "weapon", itemId: "long_sword", x: 620, y: 700 - YSHIFT }
         ], ZONE_X.ruins),
         npcs: offsetList([
-          { id: "quest_giver", type: "quest", name: "A Santa da Ruína", x: 360, y: 712 - YSHIFT, w: 28, h: 46 }
+          { id: "quest_giver", type: "quest", name: "A Santa da Ruína", x: 360, y: 712 - YSHIFT, w: 28, h: 46 },
+          { id: "trainer_mentor", type: "trainer", name: "Mentor das Ruínas", x: 520, y: 712 - YSHIFT, w: 28, h: 46 }
         ], ZONE_X.ruins)
       },
       {
@@ -2835,7 +3164,7 @@ import {
         return player.isSprinting || player.dashT > 0;
       }
       if (solid.type === "pogo") {
-        return player.abilities.pogo && player.attackType === "plunge" && player.vy > 0;
+        return gameState.unlocks.pogo && player.attackType === "plunge" && player.vy > 0;
       }
       return false;
     };
@@ -2864,8 +3193,8 @@ import {
           if (ent === player && s.gate && gateToastCooldown <= 0){
             const needsSprint = s.type === "sprint" && !canPassGate(s, ent);
             const needsDash = s.type === "dash" && !player.abilities.dash;
-            const needsWall = s.type === "wall" && !player.abilities.wallJump;
-            const needsPogo = s.type === "pogo" && !player.abilities.pogo;
+            const needsWall = s.type === "wall" && !player.wallJumpUnlocked;
+            const needsPogo = s.type === "pogo" && !gameState.unlocks.pogo;
             if (needsSprint || needsDash || needsWall || needsPogo){
               toast("Uma técnica te falta…");
               gateToastCooldown = 1.2;
@@ -2886,8 +3215,8 @@ import {
           if (ent === player && s.gate && gateToastCooldown <= 0){
             const needsSprint = s.type === "sprint" && !canPassGate(s, ent);
             const needsDash = s.type === "dash" && !player.abilities.dash;
-            const needsWall = s.type === "wall" && !player.abilities.wallJump;
-            const needsPogo = s.type === "pogo" && !player.abilities.pogo;
+            const needsWall = s.type === "wall" && !player.wallJumpUnlocked;
+            const needsPogo = s.type === "pogo" && !gameState.unlocks.pogo;
             if (needsSprint || needsDash || needsWall || needsPogo){
               toast("Uma técnica te falta…");
               gateToastCooldown = 1.2;
@@ -2951,6 +3280,10 @@ import {
 
     function startParry(){
       const weapon = getEquippedWeapon();
+      if (!gameState.unlocks.parry) {
+        toast("Parry bloqueado.");
+        return;
+      }
       if (!weapon.canParry) {
         toast("Esta arma não permite aparar.");
         return;
@@ -3243,9 +3576,15 @@ import {
       const handleAbilityPickup = (pickup) => {
         const ability = pickup.abilityId;
         if (!ability) return false;
-        if (player.abilities[ability]) return false;
-        player.abilities[ability] = true;
-        toast(`Habilidade desbloqueada: ${ability === "dash" ? "Dash" : ability === "wallJump" ? "Wall Jump" : "Pogo"}.`);
+        const alreadyKnown = player.abilities[ability];
+        if (!alreadyKnown) {
+          player.abilities[ability] = true;
+          toast(`Habilidade desbloqueada: ${ability === "dash" ? "Dash" : ability === "wallJump" ? "Wall Jump" : "Pogo"}.`);
+        } else {
+          toast("Técnica já conhecida.");
+        }
+        if (ability === "wallJump") gameState.unlocks.wallJump = true;
+        if (ability === "pogo") gameState.unlocks.pogo = true;
         requestSave("ability");
         return true;
       };
@@ -3293,6 +3632,19 @@ import {
       }
     }
 
+    const getTrainerInRange = () => {
+      const px = player.x + player.w / 2;
+      const py = player.y + player.h / 2;
+      for (const npc of activeNpcs) {
+        if (npc.type !== "trainer") continue;
+        const nx = npc.x + npc.w / 2;
+        const ny = npc.y + npc.h / 2;
+        const d = Math.hypot(px - nx, py - ny);
+        if (d <= 80) return npc;
+      }
+      return null;
+    };
+
     const getQuestGiverInRange = () => {
       const px = player.x + player.w / 2;
       const py = player.y + player.h / 2;
@@ -3304,6 +3656,17 @@ import {
         if (d <= 80) return npc;
       }
       return null;
+    };
+
+    const tryOpenTrainerDialog = () => {
+      const npc = getTrainerInRange();
+      if (!npc) return false;
+      trainerView = "intro";
+      trainerIndex = 0;
+      trainerSelectedSkill = null;
+      renderTrainerDialog();
+      setState("dialog_trainer");
+      return true;
     };
 
     const tryOpenQuestDialog = () => {
@@ -3670,7 +4033,8 @@ import {
       const right = keys.has("d") || keys.has("arrowright");
       const jumpHeld = keys.has("w") || keys.has("arrowup") || keys.has(" ");
       const restart = keys.has("r");
-      player.wallJumpUnlocked = player.abilities.wallJump || inventoryState.owned.relic.includes("relic_iron");
+      player.wallJumpUnlocked = gameState.unlocks.wallJump
+        && (player.abilities.wallJump || inventoryState.owned.relic.includes("relic_iron"));
   
       if (restart) resetAll();
   
@@ -3722,7 +4086,7 @@ import {
       // Movement
       const profile = getRollProfile();
       const moveScale = (player.isDrinking ? 0.2 : 1) * profile.moveSpeed;
-      const sprintHeld = input.sprint;
+      const sprintHeld = input.sprint && gameState.unlocks.sprint;
       const sprintEligible = sprintHeld
         && (left || right)
         && player.onGround
@@ -3755,6 +4119,7 @@ import {
       if (player.onGround){
         player.coyoteTimer = PLAYER_MOVE.coyoteTime;
         player.dashAvailable = true;
+        player.doubleJumpAvailable = gameState.unlocks.doubleJump;
       } else {
         player.coyoteTimer = Math.max(0, player.coyoteTimer - dt);
       }
@@ -3789,18 +4154,27 @@ import {
         player.jumpBufferTimer = 0;
         player.jumpHoldTimer = PLAYER_MOVE.jumpHoldTime;
         jumpedThisFrame = true;
+      } else if (player.jumpBufferTimer > 0 && canJump && !player.onGround && player.doubleJumpAvailable){
+        player.vy = -PLAYER_MOVE.jumpSpeed;
+        player.doubleJumpAvailable = false;
+        player.jumpBufferTimer = 0;
+        player.jumpHoldTimer = PLAYER_MOVE.jumpHoldTime;
+        jumpedThisFrame = true;
       }
 
+      const airDashUnlocked = gameState.unlocks.airDash;
       if (input.dash && player.dashT <= 0 && player.rollT <= 0 && player.hurtT <= 0 && player.parryT <= 0 && !player.isDrinking){
         if (!player.abilities.dash){
           toast("Dash bloqueado.");
-        } else if (player.onGround || player.dashAvailable){
+        } else if (player.onGround || (player.dashAvailable && airDashUnlocked)){
           const dashDir = left ? -1 : (right ? 1 : player.face);
           player.dashT = PLAYER_MOVE.dashDuration;
           player.dashDir = dashDir;
           player.vx = PLAYER_MOVE.dashSpeed * dashDir;
           player.vy = 0;
           if (!player.onGround) player.dashAvailable = false;
+        } else if (!player.onGround && !airDashUnlocked) {
+          toast("Dash aéreo bloqueado.");
         }
       }
   
@@ -3835,7 +4209,7 @@ import {
       if (input.drink) startDrink();
   
       if (input.interact){
-        if (!tryOpenQuestDialog()) {
+        if (!tryOpenTrainerDialog() && !tryOpenQuestDialog()) {
           tryPickupItems();
           tryOpenDoor();
           restAtBonfire();
@@ -3849,7 +4223,7 @@ import {
         const pbox = { x: player.x, y: player.y, w: player.w, h: player.h };
         for (const spike of worldSpikes){
           if (rectsOverlap(pbox, spike)){
-            if (!player.abilities.pogo || player.attackType !== "plunge"){
+            if (!gameState.unlocks.pogo || player.attackType !== "plunge"){
               playerTakeDamage(14, spike.x);
             }
             break;
@@ -3915,7 +4289,7 @@ import {
         if (isPlunge && !player.attackHit && worldSpikes.length){
           for (const spike of worldSpikes){
             if (rectsOverlap(ah, spike)){
-              if (player.abilities.pogo){
+              if (gameState.unlocks.pogo){
                 player.attackHit = true;
                 player.attackT = 0;
                 player.onGround = false;
