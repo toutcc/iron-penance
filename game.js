@@ -146,6 +146,15 @@ import {
   let visitedZones = new Set();
   const QUEST_DEFS = [
     {
+      id: "q_tutorial",
+      title: "Primeiros passos",
+      desc: "Elimine uma sombra nas ruínas e retorne à luz da fogueira.",
+      type: "kill",
+      target: 1,
+      targetId: "shadow",
+      rewardGold: 150
+    },
+    {
       id: "q_shadow",
       title: "Sombras nas ruínas",
       desc: "Dissipe as sombras que rondam os escombros.",
@@ -184,7 +193,7 @@ import {
       id: "sprint",
       title: "Sprint",
       desc: "Acelera a passada e atravessa os corredores em fúria.",
-      price: 150,
+      price: 120,
       unlockKey: "sprint"
     },
     {
@@ -2591,10 +2600,10 @@ import {
     const ZONE_X = {
       gallery: 0,
       ruins: 2400,
-      abyss: 4600,
-      antechamber: 7200,
-      boss: 8800,
-      foundry: 10800
+      antechamber: 4600,
+      boss: 6200,
+      foundry: 8200,
+      abyss: 10400
     };
     const ZONE_W = {
       gallery: 2400,
@@ -2609,19 +2618,19 @@ import {
     const zones = [
       { id: "gallery", name: "Galeria Quebrada", rect: { x: ZONE_X.gallery, y: 0, w: ZONE_W.gallery, h: WORLD.h } },
       { id: "ruins", name: "Ruínas", rect: { x: ZONE_X.ruins, y: 0, w: ZONE_W.ruins, h: WORLD.h } },
-      { id: "abyss", name: "Abismo Silencioso", rect: { x: ZONE_X.abyss, y: 0, w: ZONE_W.abyss, h: WORLD.h } },
       { id: "antechamber", name: "Ante-câmara", rect: { x: ZONE_X.antechamber, y: 0, w: ZONE_W.antechamber, h: WORLD.h } },
       { id: "boss", name: "Santuário do Penitente", rect: { x: ZONE_X.boss, y: 0, w: ZONE_W.boss, h: WORLD.h }, isBoss: true, bossId: PRIMARY_BOSS_ID },
-      { id: "foundry", name: "Forja Soterrada", rect: { x: ZONE_X.foundry, y: 0, w: ZONE_W.foundry, h: WORLD.h } }
+      { id: "foundry", name: "Forja Soterrada", rect: { x: ZONE_X.foundry, y: 0, w: ZONE_W.foundry, h: WORLD.h } },
+      { id: "abyss", name: "Abismo Silencioso", rect: { x: ZONE_X.abyss, y: 0, w: ZONE_W.abyss, h: WORLD.h } }
     ];
     const zoneMap = new Map(zones.map((zone) => [zone.id, zone]));
 
     const fogVolumes = [
       { id: "fog_gallery_ruins", x: ZONE_X.ruins - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
-      { id: "fog_ruins_abyss", x: ZONE_X.abyss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
-      { id: "fog_abyss_antechamber", x: ZONE_X.antechamber - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
+      { id: "fog_ruins_antechamber", x: ZONE_X.antechamber - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
       { id: "fog_antechamber_boss", x: ZONE_X.boss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
-      { id: "fog_boss_foundry", x: ZONE_X.foundry - 220, y: 0, w: 220, h: WORLD.h, direction: "right" }
+      { id: "fog_boss_foundry", x: ZONE_X.foundry - 220, y: 0, w: 220, h: WORLD.h, direction: "right" },
+      { id: "fog_foundry_abyss", x: ZONE_X.abyss - 220, y: 0, w: 220, h: WORLD.h, direction: "right" }
     ];
 
     const offsetList = (list, dx, dy = 0) => list.map((item) => ({ ...item, x: item.x + dx, y: item.y + dy }));
@@ -2716,10 +2725,7 @@ import {
           // Corredor estreito para a saída leste (gargalo).
           { x: 1900, y: 700 - YSHIFT, w: 260, h: 20 }
         ], ZONE_X.ruins),
-        gates: [
-          // Gate de sprint: atravessa correndo ou com dash.
-          makeGate({ id: "sprint_gate", type: "sprint", x: ZONE_X.abyss - 52, y: 700 - YSHIFT, w: 52, h: 80 })
-        ]
+        gates: []
       },
       // ABISMO: poço profundo + seção vertical com wall jump.
       {
@@ -2851,6 +2857,17 @@ import {
           { x: 1500, y: 600 - YSHIFT, w: 220, h: 24 },
           { x: 1820, y: 520 - YSHIFT, w: 260, h: 24 }
         ], ZONE_X.foundry),
+        gates: [
+          makeGate({
+            id: "abyss_gate",
+            type: "abyss",
+            hint: "Falta uma técnica para atravessar a névoa do Abismo.",
+            x: ZONE_X.abyss - 52,
+            y: 700 - YSHIFT,
+            w: 52,
+            h: 80
+          })
+        ],
         bonfires: offsetList([
           { id: "Forja", x: 1640, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 1600, spawnY: 740 - YSHIFT }
         ], ZONE_X.foundry),
@@ -3697,7 +3714,10 @@ import {
         return player.abilities.dash && player.dashT > 0;
       }
       if (solid.type === "sprint") {
-        return player.isSprinting || player.dashT > 0;
+        return player.isSprinting;
+      }
+      if (solid.type === "abyss") {
+        return gameState.unlocks.sprint && player.isSprinting;
       }
       if (solid.type === "pogo") {
         return gameState.unlocks.pogo && player.attackType === "plunge" && player.vy > 0;
@@ -3707,7 +3727,7 @@ import {
 
     const shouldCollideWithSolid = (solid, ent) => {
       if (!solid.gate) return true;
-      if (solid.type === "dash" || solid.type === "sprint" || solid.type === "pogo"){
+      if (solid.type === "dash" || solid.type === "sprint" || solid.type === "pogo" || solid.type === "abyss"){
         if (ent !== player) return true;
         return !canPassGate(solid, ent);
       }
@@ -3728,11 +3748,12 @@ import {
         if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
           if (ent === player && s.gate && gateToastCooldown <= 0){
             const needsSprint = s.type === "sprint" && !canPassGate(s, ent);
+            const needsAbyss = s.type === "abyss" && !canPassGate(s, ent);
             const needsDash = s.type === "dash" && !player.abilities.dash;
             const needsWall = s.type === "wall" && !player.wallJumpUnlocked;
             const needsPogo = s.type === "pogo" && !gameState.unlocks.pogo;
-            if (needsSprint || needsDash || needsWall || needsPogo){
-              toast("Uma técnica te falta…");
+            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo){
+              toast(s.hint || "Uma técnica te falta…");
               gateToastCooldown = 1.2;
             }
           }
@@ -3750,11 +3771,12 @@ import {
         if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
           if (ent === player && s.gate && gateToastCooldown <= 0){
             const needsSprint = s.type === "sprint" && !canPassGate(s, ent);
+            const needsAbyss = s.type === "abyss" && !canPassGate(s, ent);
             const needsDash = s.type === "dash" && !player.abilities.dash;
             const needsWall = s.type === "wall" && !player.wallJumpUnlocked;
             const needsPogo = s.type === "pogo" && !gameState.unlocks.pogo;
-            if (needsSprint || needsDash || needsWall || needsPogo){
-              toast("Uma técnica te falta…");
+            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo){
+              toast(s.hint || "Uma técnica te falta…");
               gateToastCooldown = 1.2;
             }
           }
@@ -4998,6 +5020,7 @@ import {
         if (gate.type === "door" && isDoorOpen) continue;
         if (gate.type === "boss" && !bossArenaLocked) continue;
         if (gate.type === "sprint") ctx.fillStyle = "rgba(120,170,255,.55)";
+        else if (gate.type === "abyss") ctx.fillStyle = "rgba(90,140,180,.65)";
         else if (gate.type === "wall") ctx.fillStyle = "rgba(150,120,90,.75)";
         else if (gate.type === "pogo") ctx.fillStyle = "rgba(180,110,200,.6)";
         else if (gate.type === "dash") ctx.fillStyle = "rgba(120,170,255,.6)";
