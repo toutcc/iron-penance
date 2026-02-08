@@ -8,7 +8,8 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="hud" id="hud">
+  <div id="gameRoot" class="hidden">
+    <canvas id="game" width="1280" height="720" aria-label="Soulslike 2D"></canvas>
     <div id="hkHud" aria-live="polite">
       <div class="row hpRow" id="hpMasks"></div>
       <div class="row stamina" id="staminaRow" aria-hidden="true">
@@ -19,20 +20,13 @@
         <div class="cur gold"><span class="icon"></span><span id="goldVal">0</span></div>
       </div>
     </div>
-    <div class="hud-debug hidden">
-      <span id="estusText">0/0</span>
-      <span id="cpText">—</span>
-      <span id="zoneText">—</span>
-      <span id="fpsText">0</span>
-      <span id="fpsPill"></span>
+    <div class="boss-bar hidden" id="bossBar" aria-live="polite">
+      <div class="boss-name" id="bossName">O PENITENTE DE FERRO</div>
+      <div class="boss-track">
+        <div id="bossHpFill" class="boss-fill"></div>
+      </div>
     </div>
-  </div>
-
-  <div class="boss-bar hidden" id="bossBar" aria-live="polite">
-    <div class="boss-name" id="bossName">O PENITENTE DE FERRO</div>
-    <div class="boss-track">
-      <div id="bossHpFill" class="boss-fill"></div>
-    </div>
+    <div class="damage-flash" id="damageFlash" aria-hidden="true"></div>
   </div>
 
   <div class="inventory-overlay hidden" id="inventoryOverlay" aria-hidden="true">
@@ -134,8 +128,6 @@
     </div>
   </div>
 
-  <canvas id="game" width="960" height="540" aria-label="Soulslike 2D"></canvas>
-  <div class="damage-flash" id="damageFlash" aria-hidden="true"></div>
   <div class="pause-overlay hidden" id="pauseOverlay" aria-hidden="true">
     <div class="pause-vignette"></div>
     <div class="pause-panel" id="pauseMenu" role="dialog" aria-labelledby="pauseTitle">
@@ -259,6 +251,7 @@
         <button class="menu-item" data-action="continue">CONTINUAR</button>
         <button class="menu-item" data-action="save">SALVAR PROGRESSO</button>
         <button class="menu-item" data-action="options">OPÇÕES</button>
+        <button class="menu-item" data-action="fullscreen">TELA CHEIA</button>
         <button class="menu-item" data-action="extras">EXTRAS</button>
         <button class="menu-item" data-action="logout">SAIR</button>
       </nav>

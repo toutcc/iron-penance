@@ -30,6 +30,30 @@ import {
     // ===== Canvas =====
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
+    const BASE_W = 1280;
+    const BASE_H = 720;
+    const VIEW_W = BASE_W;
+    const VIEW_H = BASE_H;
+    const viewport = {
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      dpr: window.devicePixelRatio || 1
+    };
+    const updateViewport = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const displayWidth = Math.max(1, Math.floor(rect.width * dpr));
+      const displayHeight = Math.max(1, Math.floor(rect.height * dpr));
+      if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+        canvas.width = displayWidth;
+        canvas.height = displayHeight;
+      }
+      viewport.dpr = dpr;
+      viewport.scale = Math.min(displayWidth / BASE_W, displayHeight / BASE_H);
+      viewport.offsetX = (displayWidth - BASE_W * viewport.scale) / 2;
+      viewport.offsetY = (displayHeight - BASE_H * viewport.scale) / 2;
+    };
   
     // ===== HUD =====
     const YSHIFT = 320;
@@ -43,7 +67,7 @@ import {
   const fpsText = document.getElementById("fpsText");
   const estusText = document.getElementById("estusText");
   const toastEl = document.getElementById("toast");
-  const hud = document.getElementById("hud");
+  const gameRoot = document.getElementById("gameRoot");
   const fpsPill = document.getElementById("fpsPill");
   const damageFlash = document.getElementById("damageFlash");
   const bossBar = document.getElementById("bossBar");
@@ -333,8 +357,7 @@ import {
     loginScreen.classList.remove("hidden");
     menuScreen.classList.add("hidden");
     profilesScreen.classList.add("hidden");
-    hud.classList.add("hidden");
-    canvas.classList.add("hidden");
+    gameRoot.classList.add("hidden");
     bossBar.classList.add("hidden");
   };
 
@@ -342,8 +365,7 @@ import {
     loginScreen.classList.add("hidden");
     menuScreen.classList.remove("hidden");
     profilesScreen.classList.add("hidden");
-    hud.classList.add("hidden");
-    canvas.classList.add("hidden");
+    gameRoot.classList.add("hidden");
     bossBar.classList.add("hidden");
     updateMenuPanel();
   };
@@ -352,8 +374,7 @@ import {
     loginScreen.classList.add("hidden");
     menuScreen.classList.add("hidden");
     profilesScreen.classList.remove("hidden");
-    hud.classList.add("hidden");
-    canvas.classList.add("hidden");
+    gameRoot.classList.add("hidden");
     bossBar.classList.add("hidden");
     clearConfirmSlotId = null;
     clearConfirm.classList.add("hidden");
@@ -363,8 +384,8 @@ import {
     loginScreen.classList.add("hidden");
     menuScreen.classList.add("hidden");
     profilesScreen.classList.add("hidden");
-    hud.classList.remove("hidden");
-    canvas.classList.remove("hidden");
+    gameRoot.classList.remove("hidden");
+    updateViewport();
     updateBossBar();
     renderHUD(true);
     inventoryOverlay.classList.add("hidden");
@@ -1598,6 +1619,22 @@ import {
       playMenuConfirm();
       return;
     }
+    if (action === "fullscreen") {
+      playMenuConfirm();
+      try {
+        if (!document.fullscreenElement) {
+          if (canvas.requestFullscreen) {
+            await canvas.requestFullscreen();
+          } else {
+            await document.documentElement.requestFullscreen();
+          }
+        }
+      } catch (error) {
+        console.warn("Falha ao entrar em fullscreen:", error);
+        toast("Fullscreen indisponível.");
+      }
+      return;
+    }
     if (action === "logout") {
       playMenuConfirm();
       try {
@@ -1943,7 +1980,11 @@ import {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
       } else {
-        await document.documentElement.requestFullscreen();
+        if (canvas.requestFullscreen) {
+          await canvas.requestFullscreen();
+        } else {
+          await document.documentElement.requestFullscreen();
+        }
       }
     } catch (error) {
       console.warn("Falha ao alternar fullscreen:", error);
@@ -2006,13 +2047,16 @@ import {
 
   window.addEventListener("resize", () => {
     resizeMenuCanvas();
+    updateViewport();
   });
 
   document.addEventListener("fullscreenchange", () => {
     updatePauseOptionsValues();
+    updateViewport();
   });
 
   loadSettings();
+  updateViewport();
 
   const PRIMARY_BOSS_ID = "penitent";
   const bossDefeatedKey = "ironpenance_boss_defeated";
@@ -3810,10 +3854,10 @@ import {
     };
   
     function centerCamera(){
-      const targetX = player.x + player.w/2 - canvas.width/2;
-      const targetY = player.y + player.h/2 - canvas.height/2;
-      cam.x = clamp(lerp(cam.x, targetX, 0.10), 0, Math.max(0, level.w - canvas.width));
-      cam.y = clamp(lerp(cam.y, targetY, 0.10), 0, Math.max(0, level.h - canvas.height));
+      const targetX = player.x + player.w/2 - VIEW_W/2;
+      const targetY = player.y + player.h/2 - VIEW_H/2;
+      cam.x = clamp(lerp(cam.x, targetX, 0.10), 0, Math.max(0, level.w - VIEW_W));
+      cam.y = clamp(lerp(cam.y, targetY, 0.10), 0, Math.max(0, level.h - VIEW_H));
     }
   
     // ===== Physics / Collision =====
@@ -5093,7 +5137,11 @@ import {
     // ===== Render =====
     function draw(){
       // background
-      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
   
       // camera shake
       const shakeMag = cam.shakeTime > 0 ? cam.shakeMag : 0;
@@ -5104,11 +5152,11 @@ import {
       const oy = -Math.floor(cam.y + shakeY);
   
       // Sky gradient
-      const g = ctx.createLinearGradient(0,0,0,canvas.height);
+      const g = ctx.createLinearGradient(0, 0, 0, VIEW_H);
       g.addColorStop(0, "#0b1020");
       g.addColorStop(1, "#07080f");
       ctx.fillStyle = g;
-      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   
       // distant silhouettes
       ctx.globalAlpha = 0.20;
@@ -5354,7 +5402,7 @@ import {
         ctx.fillText("Pressione E para falar", questNpc.x - 30 + ox, questNpc.y - 12 + oy);
       }
 
-      const viewRect = { x: cam.x, y: cam.y, w: canvas.width, h: canvas.height };
+      const viewRect = { x: cam.x, y: cam.y, w: VIEW_W, h: VIEW_H };
       for (const zone of zones){
         if (visitedZones.has(zone.id)) continue;
         const intersection = intersectRect(viewRect, zone.rect);
@@ -5380,26 +5428,26 @@ import {
         ctx.fillRect(intersection.x - cam.x, intersection.y - cam.y, intersection.w, intersection.h);
       }
 
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
+      const cx = VIEW_W / 2;
+      const cy = VIEW_H / 2;
       const maxRadius = Math.max(cx, cy);
       const vignette = ctx.createRadialGradient(cx, cy, maxRadius * 0.2, cx, cy, maxRadius);
       vignette.addColorStop(0, "rgba(0,0,0,0)");
       vignette.addColorStop(0.6, "rgba(0,0,0,0.28)");
       vignette.addColorStop(1, "rgba(0,0,0,0.78)");
       ctx.fillStyle = vignette;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
       const edgeFog = ctx.createRadialGradient(cx, cy, maxRadius * 0.1, cx, cy, maxRadius);
       edgeFog.addColorStop(0, "rgba(0,0,0,0)");
       edgeFog.addColorStop(0.7, "rgba(12,14,20,0.18)");
       edgeFog.addColorStop(1, "rgba(12,14,20,0.32)");
       ctx.fillStyle = edgeFog;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
       // ground info
       ctx.fillStyle = "rgba(255,255,255,.06)";
-      ctx.fillRect(0, 500, canvas.width, 2);
+      ctx.fillRect(0, 500, VIEW_W, 2);
   
       // HUD update handled in renderHUD()
 
@@ -5407,14 +5455,14 @@ import {
         const progress = 1 - (deathFade.t / deathFade.duration);
         const alpha = progress < 0.5 ? (progress / 0.5) : ((1 - progress) / 0.5);
         ctx.fillStyle = `rgba(0,0,0,${Math.min(1, Math.max(0, alpha))})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       }
 
       if (bossDefeatFlash.t > 0){
         const progress = 1 - (bossDefeatFlash.t / bossDefeatFlash.duration);
         const alpha = progress < 0.4 ? (progress / 0.4) : ((1 - progress) / 0.6);
         ctx.fillStyle = `rgba(255,245,230,${Math.min(0.8, Math.max(0, alpha))})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       }
 
     }
