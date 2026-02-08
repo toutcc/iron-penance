@@ -91,6 +91,20 @@
     </div>
   </div>
 
+  <div class="trainer-overlay hidden" id="trainerOverlay" aria-hidden="true">
+    <div class="trainer-panel" role="dialog" aria-labelledby="trainerTitle">
+      <header class="trainer-header">
+        <p class="trainer-kicker">Mentor das Ruínas</p>
+        <h2 id="trainerTitle">SALA DE TREINO</h2>
+      </header>
+      <div class="trainer-body">
+        <div class="trainer-list" id="trainerList" role="listbox" aria-label="Lista de técnicas"></div>
+        <div class="trainer-details" id="trainerDetails"></div>
+      </div>
+      <div class="trainer-hint" id="trainerHint">↑ ↓ navegar • Enter selecionar • Esc sair</div>
+    </div>
+  </div>
+
   <canvas id="game" width="960" height="540" aria-label="Soulslike 2D"></canvas>
   <div class="damage-flash" id="damageFlash" aria-hidden="true"></div>
   <div class="pause-overlay hidden" id="pauseOverlay" aria-hidden="true">
