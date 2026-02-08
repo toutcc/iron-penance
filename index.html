@@ -91,6 +91,7 @@
       <nav class="menu-list" id="menuList">
         <button class="menu-item" data-action="start">INICIAR O JOGO</button>
         <button class="menu-item" data-action="continue">CONTINUAR</button>
+        <button class="menu-item" data-action="save">SALVAR PROGRESSO</button>
         <button class="menu-item" data-action="options">OPÇÕES</button>
         <button class="menu-item" data-action="extras">EXTRAS</button>
         <button class="menu-item" data-action="logout">SAIR</button>
@@ -142,6 +143,63 @@
     <div class="menu-footer">
       <span class="menu-version">v0.1.0</span>
       <span class="menu-user" id="menuUser">Conectado: —</span>
+    </div>
+  </div>
+
+  <div class="profiles-screen hidden" id="profilesScreen" aria-live="polite">
+    <div class="profiles-fog"></div>
+    <div class="profiles-content">
+      <header class="profiles-header">
+        <p class="profiles-kicker">Prepare-se para continuar</p>
+        <h2 class="profiles-title">SELECT PROFILE</h2>
+        <div class="profiles-ornament">
+          <span></span>
+          <span class="ornament-dot"></span>
+          <span></span>
+        </div>
+      </header>
+
+      <ul class="profiles-slots" id="profilesSlots">
+        <li class="profiles-slot" data-slot="1">
+          <span class="slot-index">1.</span>
+          <div class="slot-body">
+            <div class="slot-title">NEW GAME</div>
+            <div class="slot-meta">—</div>
+          </div>
+        </li>
+        <li class="profiles-slot" data-slot="2">
+          <span class="slot-index">2.</span>
+          <div class="slot-body">
+            <div class="slot-title">NEW GAME</div>
+            <div class="slot-meta">—</div>
+          </div>
+        </li>
+        <li class="profiles-slot" data-slot="3">
+          <span class="slot-index">3.</span>
+          <div class="slot-body">
+            <div class="slot-title">NEW GAME</div>
+            <div class="slot-meta">—</div>
+          </div>
+        </li>
+        <li class="profiles-slot" data-slot="4">
+          <span class="slot-index">4.</span>
+          <div class="slot-body">
+            <div class="slot-title">NEW GAME</div>
+            <div class="slot-meta">—</div>
+          </div>
+        </li>
+      </ul>
+
+      <div class="profiles-actions">
+        <button class="profiles-clear hidden" id="clearSaveBtn">CLEAR SAVE</button>
+        <div class="profiles-confirm hidden" id="clearConfirm">
+          <span>Apagar save?</span>
+          <button class="profiles-confirm-btn" data-action="confirm">Sim</button>
+          <button class="profiles-confirm-btn" data-action="cancel">Não</button>
+        </div>
+      </div>
+
+      <button class="profiles-back" id="profilesBack">BACK</button>
     </div>
   </div>
 
