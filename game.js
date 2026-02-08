@@ -33,12 +33,11 @@ import {
   
     // ===== HUD =====
     const YSHIFT = 320;
-    const hpFill = document.getElementById("hpFill");
-    const stFill = document.getElementById("stFill");
-  const hpText = document.getElementById("hpText");
-  const stText = document.getElementById("stText");
-  const soulsText = document.getElementById("soulsText");
-  const goldText = document.getElementById("goldText");
+  const hpMasks = document.getElementById("hpMasks");
+  const staminaRow = document.getElementById("staminaRow");
+  const staminaFill = document.getElementById("staminaFill");
+  const soulsVal = document.getElementById("soulsVal");
+  const goldVal = document.getElementById("goldVal");
   const cpText = document.getElementById("cpText");
   const zoneText = document.getElementById("zoneText");
   const fpsText = document.getElementById("fpsText");
@@ -367,6 +366,7 @@ import {
     hud.classList.remove("hidden");
     canvas.classList.remove("hidden");
     updateBossBar();
+    renderHUD(true);
     inventoryOverlay.classList.add("hidden");
   };
 
@@ -1005,7 +1005,7 @@ import {
   };
 
   const updateFpsVisibility = () => {
-    fpsPill.classList.toggle("hidden", !showFps);
+    if (fpsPill) fpsPill.classList.toggle("hidden", !showFps);
   };
 
   const updatePauseOptionsValues = () => {
@@ -1195,8 +1195,8 @@ import {
     const savedCheckpoint = data.checkpoint || savedPlayer.checkpoint;
     const savedSouls = Number.isFinite(data.souls) ? data.souls : savedPlayer.souls;
     const savedGold = Number.isFinite(data.gold) ? data.gold : null;
-    if (Number.isFinite(savedPlayer.hp)) player.hp = savedPlayer.hp;
     if (Number.isFinite(savedPlayer.hpMax)) player.hpMax = savedPlayer.hpMax;
+    if (Number.isFinite(savedPlayer.hp)) setHP(savedPlayer.hp, { silent: true });
     if (Number.isFinite(savedPlayer.estus)) player.estus = savedPlayer.estus;
     if (Number.isFinite(savedPlayer.estusMax)) player.estusMax = savedPlayer.estusMax;
     if (Number.isFinite(savedPlayer.estusBaseMax)) {
@@ -1271,9 +1271,10 @@ import {
     if (data.equipment) {
       gameState.equipment = normalizeEquipment(data.equipment);
     }
-    cpText.textContent = player.checkpoint?.id || "—";
+    if (cpText) cpText.textContent = player.checkpoint?.id || "—";
     updateZoneState();
     refreshEquipmentStats();
+    renderHUD(true);
 
     return true;
   };
@@ -2883,6 +2884,114 @@ import {
     ];
 
     const player = makePlayer();
+    const HUD_MASK_UNIT = 20;
+    let hudMaskCount = 0;
+    let hudMasks = [];
+    let hudLastHp = null;
+    let hudLastHpMax = null;
+    let hudLastSouls = null;
+    let hudLastGold = null;
+    let hudLastSt = null;
+    let hudLastStMax = null;
+    let staminaHudTimer = 0;
+
+    const buildMasks = (count) => {
+      if (!hpMasks) return;
+      hpMasks.innerHTML = "";
+      hudMasks = [];
+      for (let i = 0; i < count; i++){
+        const mask = document.createElement("span");
+        mask.className = "mask empty";
+        hpMasks.appendChild(mask);
+        hudMasks.push(mask);
+      }
+      hudMaskCount = count;
+    };
+
+    const setMaskState = (mask, state) => {
+      mask.classList.remove("full", "half", "empty");
+      mask.classList.add(state);
+    };
+
+    const updateMaskStates = () => {
+      if (!hpMasks) return;
+      const maskCount = Math.max(1, Math.ceil(player.hpMax / HUD_MASK_UNIT));
+      if (maskCount !== hudMaskCount) {
+        buildMasks(maskCount);
+      }
+      const rawMasks = Math.max(0, player.hp / HUD_MASK_UNIT);
+      const fullCount = Math.min(maskCount, Math.floor(rawMasks));
+      const hasHalf = rawMasks - fullCount >= 0.5 && fullCount < maskCount;
+      hudMasks.forEach((mask, index) => {
+        if (index < fullCount) {
+          setMaskState(mask, "full");
+        } else if (index === fullCount && hasHalf) {
+          setMaskState(mask, "half");
+        } else {
+          setMaskState(mask, "empty");
+        }
+      });
+    };
+
+    const animateMask = (index, type) => {
+      const mask = hudMasks[index];
+      if (!mask) return;
+      mask.classList.remove("damage", "heal");
+      void mask.offsetWidth;
+      mask.classList.add(type);
+    };
+
+    const renderHUD = (force = false) => {
+      if (!hpMasks) return;
+      const hpChanged = force || player.hp !== hudLastHp || player.hpMax !== hudLastHpMax;
+      if (hpChanged) {
+        updateMaskStates();
+        hudLastHp = player.hp;
+        hudLastHpMax = player.hpMax;
+      }
+      if (soulsVal && (force || player.souls !== hudLastSouls)) {
+        soulsVal.textContent = `${player.souls}`;
+        hudLastSouls = player.souls;
+      }
+      if (goldVal && (force || gameState.gold !== hudLastGold)) {
+        goldVal.textContent = `${gameState.gold}`;
+        hudLastGold = gameState.gold;
+      }
+      if (staminaFill && (force || player.st !== hudLastSt || player.stMax !== hudLastStMax)) {
+        staminaFill.style.width = `${(player.st / player.stMax) * 100}%`;
+        hudLastSt = player.st;
+        hudLastStMax = player.stMax;
+      }
+      if (staminaRow) {
+        const show = staminaHudTimer > 0;
+        staminaRow.classList.toggle("show", show);
+        staminaRow.setAttribute("aria-hidden", show ? "false" : "true");
+      }
+    };
+
+    const triggerStaminaHud = () => {
+      staminaHudTimer = 1.5;
+      renderHUD();
+    };
+
+    const setHP = (newHP, options = {}) => {
+      const prev = player.hp;
+      player.hp = clamp(newHP, 0, player.hpMax);
+      if (!options.silent && player.hp !== prev) {
+        const maskCount = Math.max(1, Math.ceil(player.hpMax / HUD_MASK_UNIT));
+        if (maskCount !== hudMaskCount) {
+          buildMasks(maskCount);
+        }
+        if (player.hp < prev) {
+          const index = Math.max(0, Math.min(maskCount - 1, Math.ceil(prev / HUD_MASK_UNIT) - 1));
+          animateMask(index, "damage");
+        } else if (player.hp > prev) {
+          const index = Math.max(0, Math.min(maskCount - 1, Math.ceil(player.hp / HUD_MASK_UNIT) - 1));
+          animateMask(index, "heal");
+        }
+      }
+      renderHUD(true);
+    };
     const worldGates = chunks.flatMap((chunk) => chunk.gates || []);
     const worldSpikes = chunks.flatMap((chunk) => chunk.spikes || []);
     const worldBonfires = chunks.flatMap((chunk) => chunk.bonfires || []);
@@ -3555,7 +3664,7 @@ import {
       if (zone && zone.id !== currentZoneId){
         currentZoneId = zone.id;
         currentZone = zone;
-        zoneText.textContent = zone.name;
+        if (zoneText) zoneText.textContent = zone.name;
         toast(`Zona: ${zone.name}`);
         updateReachQuests(zone.id);
       }
@@ -3572,7 +3681,7 @@ import {
       if (zone && !visitedZones.has(zone.id)) {
         visitedZones.add(zone.id);
       }
-      if (!zoneText.textContent && currentZone) {
+      if (zoneText && !zoneText.textContent && currentZone) {
         zoneText.textContent = currentZone.name;
       }
     };
@@ -3800,6 +3909,7 @@ import {
     function staminaSpend(amount){
       if (player.st < amount) return false;
       player.st -= amount;
+      triggerStaminaHud();
       return true;
     }
   
@@ -3864,7 +3974,7 @@ import {
       player.estus -= 1;
       player.isDrinking = true;
       player.drinkTimer = 0.6;
-      player.hp = Math.min(player.hpMax, player.hp + 35);
+      setHP(Math.min(player.hpMax, player.hp + 35));
       toast("+35 HP (Estus)");
     }
   
@@ -4032,8 +4142,7 @@ import {
       if (player.invulT > 0 || player.hurtT > 0) return;
       const armor = getEquippedArmor();
       const mitigated = Math.max(1, amount - (armor.stats?.defense || 0));
-      player.hp -= mitigated;
-      player.hp = Math.max(0, player.hp);
+      setHP(player.hp - mitigated);
       player.hurtT = 0.28;
       player.invulT = 0.15;
       // knockback
@@ -4076,7 +4185,7 @@ import {
         y: b.spawnY ?? 740,
         zoneId: currentZoneId
       };
-      player.hp = player.hpMax;
+      setHP(player.hpMax, { silent: true });
       player.st = player.stMax;
       player.estus = player.estusMax;
       resetAllChunksEnemies();
@@ -4104,7 +4213,7 @@ import {
       // respawn
       toast("Você morreu.");
       deathFade.t = deathFade.duration;
-      player.hp = player.hpMax;
+      setHP(player.hpMax, { silent: true });
       player.st = player.stMax;
       player.estus = player.estusMax;
       player.vx = 0; player.vy = 0;
@@ -4648,10 +4757,11 @@ import {
       currentZoneId = "ruins";
       currentZone = zones.find((zone) => zone.id === currentZoneId) || zones[0];
       visitedZones = new Set([currentZoneId]);
-      zoneText.textContent = currentZone.name;
+      if (zoneText) zoneText.textContent = currentZone.name;
       cam.x = 0; cam.shakeTime = 0; cam.shakeMag = 0;
       hitStopTimer = 0;
       hitParticles.length = 0;
+      renderHUD(true);
       toast("Reiniciado.");
     }
   
@@ -4686,6 +4796,7 @@ import {
       deathFade.t = Math.max(0, deathFade.t - dt);
       bossDefeatFlash.t = Math.max(0, bossDefeatFlash.t - dt);
       gateToastCooldown = Math.max(0, gateToastCooldown - dt);
+      staminaHudTimer = Math.max(0, staminaHudTimer - dt);
       if (player.isDrinking && player.drinkTimer <= 0){
         player.isDrinking = false;
       }
@@ -4731,6 +4842,7 @@ import {
       if (sprinting) {
         player.st = clamp(player.st - PLAYER_MOVE.sprintStaminaCost * dt, 0, player.stMax);
         if (player.st < PLAYER_MOVE.sprintMinStamina) sprinting = false;
+        triggerStaminaHud();
       }
       player.isSprinting = sprinting;
       const sprintBoost = sprinting ? PLAYER_MOVE.sprintMultiplier : 1;
@@ -4952,7 +5064,9 @@ import {
       tryPickupDeathDrop();
 
       // Update checkpoint label
-      cpText.textContent = player.checkpoint.id;
+      if (cpText) cpText.textContent = player.checkpoint.id;
+
+      renderHUD();
   
       // Clear one-shot input
       consumeActions();
@@ -5287,14 +5401,7 @@ import {
       ctx.fillStyle = "rgba(255,255,255,.06)";
       ctx.fillRect(0, 500, canvas.width, 2);
   
-      // HUD update
-      hpFill.style.width = `${(player.hp/player.hpMax)*100}%`;
-      stFill.style.width = `${(player.st/player.stMax)*100}%`;
-      hpText.textContent = `${Math.floor(player.hp)}/${player.hpMax}`;
-      stText.textContent = `${Math.floor(player.st)}/${player.stMax}`;
-      soulsText.textContent = `${player.souls}`;
-      goldText.textContent = `${gameState.gold}`;
-      estusText.textContent = `${player.estus}/${player.estusMax}`;
+      // HUD update handled in renderHUD()
 
       if (deathFade.t > 0){
         const progress = 1 - (deathFade.t / deathFade.duration);
@@ -5346,7 +5453,7 @@ import {
       fpsN++;
       if (fpsN >= 15){
         fps = Math.round(fpsAcc / fpsN);
-        fpsText.textContent = `${fps}`;
+        if (fpsText) fpsText.textContent = `${fps}`;
         fpsAcc = 0; fpsN = 0;
       }
   
@@ -5355,7 +5462,7 @@ import {
   
     // ===== Start =====
     toast("Bem-vindo. Cuidado com a stamina.");
-    cpText.textContent = player.checkpoint.id;
+    if (cpText) cpText.textContent = player.checkpoint.id;
     showLogin();
     stopGame();
 })();
