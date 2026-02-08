@@ -38,6 +38,7 @@ import {
   const hpText = document.getElementById("hpText");
   const stText = document.getElementById("stText");
   const soulsText = document.getElementById("soulsText");
+  const goldText = document.getElementById("goldText");
   const cpText = document.getElementById("cpText");
   const zoneText = document.getElementById("zoneText");
   const fpsText = document.getElementById("fpsText");
@@ -68,6 +69,10 @@ import {
   const pauseVolumeRange = document.getElementById("pauseVolumeRange");
   const pauseVolumeValue = document.getElementById("pauseVolumeValue");
   const pausePixelScale = document.getElementById("pausePixelScale");
+  const questOverlay = document.getElementById("questOverlay");
+  const questList = document.getElementById("questList");
+  const questDetails = document.getElementById("questDetails");
+  const questHint = document.getElementById("questHint");
   const toast = (msg, ms = 1300) => {
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -134,6 +139,68 @@ import {
   let clearConfirmSlotId = null;
   const slotCache = new Map();
   let visitedZones = new Set();
+  const QUEST_DEFS = [
+    {
+      id: "q_shadow",
+      title: "Sombras nas ruínas",
+      desc: "Dissipe as sombras que rondam os escombros.",
+      type: "kill",
+      target: 3,
+      targetId: "shadow",
+      rewardGold: 50
+    },
+    {
+      id: "q_fragments",
+      title: "Fragmentos perdidos",
+      desc: "Reúna fragmentos espalhados pelos inimigos.",
+      type: "collect",
+      target: 5,
+      targetId: "fragment",
+      rewardGold: 80
+    },
+    {
+      id: "q_gallery",
+      title: "Eco da galeria",
+      desc: "Alcance a Galeria Quebrada e retorne viva.",
+      type: "reach",
+      target: 1,
+      targetId: "gallery",
+      rewardGold: 100
+    }
+  ];
+  const QUEST_ORDER = QUEST_DEFS.map((quest) => quest.id);
+
+  const normalizeQuestData = (saved = {}) => {
+    const output = {};
+    QUEST_DEFS.forEach((def) => {
+      const stored = saved[def.id] || {};
+      const progress = Number.isFinite(stored.progress) ? stored.progress : 0;
+      const state = ["available", "active", "completed", "claimed"].includes(stored.state)
+        ? stored.state
+        : "available";
+      output[def.id] = {
+        ...def,
+        progress: Math.max(0, progress),
+        rewardGold: Number.isFinite(stored.rewardGold) ? stored.rewardGold : def.rewardGold,
+        state
+      };
+      if (output[def.id].state === "completed") {
+        output[def.id].progress = Math.max(output[def.id].progress, output[def.id].target);
+      }
+    });
+    return output;
+  };
+
+  const createDefaultGameState = () => ({
+    gold: 0,
+    questDrops: { fragment: 0 },
+    quests: normalizeQuestData()
+  });
+
+  let gameState = createDefaultGameState();
+  let questView = "menu";
+  let questIndex = 0;
+  let questListItems = [];
 
   const setStatus = (message) => {
     authStatus.textContent = message;
@@ -269,15 +336,300 @@ import {
     });
   });
 
+  const showQuestDialog = () => {
+    questOverlay.classList.remove("hidden");
+    questOverlay.setAttribute("aria-hidden", "false");
+  };
+
+  const hideQuestDialog = () => {
+    questOverlay.classList.add("hidden");
+    questOverlay.setAttribute("aria-hidden", "true");
+  };
+
+  const getQuestList = () => QUEST_ORDER.map((id) => gameState.quests[id]).filter(Boolean);
+
+  const setQuestView = (view) => {
+    questView = view;
+    questIndex = 0;
+    renderQuestDialog();
+  };
+
+  const updateQuestCompletion = (quest) => {
+    if (quest.state !== "active") return;
+    if (quest.progress >= quest.target) {
+      quest.progress = quest.target;
+      quest.state = "completed";
+      toast(`Missão concluída: ${quest.title}`);
+      requestSave("quest");
+    }
+  };
+
+  const acceptQuest = (quest) => {
+    if (quest.state !== "available") return;
+    quest.state = "active";
+    if (quest.type === "collect") {
+      quest.progress = Math.min(quest.target, gameState.questDrops[quest.targetId] || 0);
+    }
+    if (quest.type === "reach" && currentZoneId === quest.targetId) {
+      quest.progress = quest.target;
+    }
+    updateQuestCompletion(quest);
+    toast(`Missão aceita: ${quest.title}`);
+    requestSave("quest");
+    renderQuestDialog();
+  };
+
+  const trackQuest = (quest) => {
+    toast(`Rastreando: ${quest.title}`);
+  };
+
+  const claimQuestReward = (quest) => {
+    if (quest.state !== "completed") return;
+    gameState.gold += quest.rewardGold;
+    quest.state = "claimed";
+    toast(`+${quest.rewardGold} ouro`);
+    requestSave("quest");
+    renderQuestDialog();
+  };
+
+  const handleQuestMenuAction = (action) => {
+    if (action === "missions") {
+      setQuestView("missions");
+      return;
+    }
+    if (action === "rewards") {
+      setQuestView("rewards");
+      return;
+    }
+    if (action === "exit") {
+      setState("game");
+    }
+  };
+
+  const handleQuestMissionAction = (quest) => {
+    if (quest.state === "available") {
+      acceptQuest(quest);
+      return;
+    }
+    if (quest.state === "active") {
+      trackQuest(quest);
+    }
+  };
+
+  const updateKillQuests = (enemy) => {
+    const targetId = enemy.kind === "hollow" ? "shadow" : enemy.kind;
+    QUEST_ORDER.forEach((id) => {
+      const quest = gameState.quests[id];
+      if (!quest || quest.state !== "active" || quest.type !== "kill") return;
+      if (quest.targetId !== targetId) return;
+      quest.progress = Math.min(quest.target, quest.progress + 1);
+      requestSave("quest_progress");
+      updateQuestCompletion(quest);
+    });
+  };
+
+  const updateCollectQuests = (itemId) => {
+    QUEST_ORDER.forEach((id) => {
+      const quest = gameState.quests[id];
+      if (!quest || quest.state !== "active" || quest.type !== "collect") return;
+      if (quest.targetId !== itemId) return;
+      quest.progress = Math.min(quest.target, gameState.questDrops[itemId] || 0);
+      requestSave("quest_progress");
+      updateQuestCompletion(quest);
+    });
+  };
+
+  const updateReachQuests = (zoneId) => {
+    QUEST_ORDER.forEach((id) => {
+      const quest = gameState.quests[id];
+      if (!quest || quest.state !== "active" || quest.type !== "reach") return;
+      if (quest.targetId !== zoneId) return;
+      quest.progress = quest.target;
+      requestSave("quest_progress");
+      updateQuestCompletion(quest);
+    });
+  };
+
+  const renderQuestDetails = (item) => {
+    if (questView === "menu") {
+      questDetails.innerHTML = `
+        <h3>${item.title}</h3>
+        <p>${item.desc}</p>
+        <div class="quest-meta">Selecione para continuar</div>
+      `;
+      return;
+    }
+    if (!item || item.kind === "empty") {
+      questDetails.innerHTML = `
+        <h3>Nenhuma missão</h3>
+        <p>Não há registros disponíveis no momento.</p>
+      `;
+      return;
+    }
+    const quest = item;
+    const progressText = quest.type === "reach"
+      ? quest.state === "completed" || quest.state === "claimed"
+        ? "Destino alcançado"
+        : "Destino pendente"
+      : `${quest.progress}/${quest.target}`;
+    const stateLabel = quest.state === "available"
+      ? "Disponível"
+      : quest.state === "active"
+        ? "Em andamento"
+        : quest.state === "completed"
+          ? "Concluída"
+          : "Recompensa coletada";
+    let actionButton = "";
+    if (questView === "missions" && quest.state === "available") {
+      actionButton = `<button type="button" data-action="accept" data-quest-id="${quest.id}">Aceitar</button>`;
+    } else if (questView === "missions" && quest.state === "active") {
+      actionButton = `<button type="button" data-action="track" data-quest-id="${quest.id}">Rastrear</button>`;
+    } else if (questView === "rewards" && quest.state === "completed") {
+      actionButton = `<button type="button" data-action="claim" data-quest-id="${quest.id}">Receber</button>`;
+    }
+    questDetails.innerHTML = `
+      <h3>${quest.title}</h3>
+      <p>${quest.desc}</p>
+      <div class="quest-meta">Status: ${stateLabel}</div>
+      <div class="quest-meta">Progresso: ${progressText}</div>
+      <div class="quest-meta">Recompensa: ${quest.rewardGold} ouro</div>
+      ${actionButton}
+    `;
+  };
+
+  const renderQuestDialog = () => {
+    if (!questOverlay) return;
+    const menuItems = [
+      { id: "menu_missions", title: "Ver missões", desc: "Aceite e acompanhe tarefas.", action: "missions" },
+      { id: "menu_rewards", title: "Entregar recompensas", desc: "Receba ouro por missões concluídas.", action: "rewards" },
+      { id: "menu_exit", title: "Sair", desc: "Voltar às ruínas.", action: "exit" }
+    ];
+    if (questView === "menu") {
+      questListItems = menuItems;
+      questHint.textContent = "↑ ↓ navegar • Enter selecionar • Esc sair";
+    } else if (questView === "missions") {
+      questListItems = getQuestList();
+      questHint.textContent = "↑ ↓ navegar • Enter ação • Esc voltar";
+    } else {
+      questListItems = getQuestList().filter((quest) => quest.state === "completed");
+      if (!questListItems.length) {
+        questListItems = [{ id: "empty_rewards", title: "Nenhuma recompensa", desc: "Complete missões para receber ouro.", kind: "empty" }];
+      }
+      questHint.textContent = "↑ ↓ navegar • Enter receber • Esc voltar";
+    }
+    questIndex = Math.max(0, Math.min(questIndex, questListItems.length - 1));
+    questList.innerHTML = "";
+    questListItems.forEach((item, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "quest-item";
+      button.dataset.index = String(index);
+      if (index === questIndex) button.classList.add("is-selected");
+      if (questView === "menu") {
+        button.dataset.action = item.action;
+        button.innerHTML = `
+          <div class="quest-item-title">${item.title}</div>
+          <div class="quest-item-meta">${item.desc}</div>
+        `;
+      } else if (item.kind === "empty") {
+        button.classList.add("is-disabled");
+        button.innerHTML = `
+          <div class="quest-item-title">${item.title}</div>
+          <div class="quest-item-meta">${item.desc}</div>
+        `;
+      } else {
+        button.dataset.questId = item.id;
+        const progressText = item.type === "reach"
+          ? item.state === "completed" || item.state === "claimed"
+            ? "Destino alcançado"
+            : "Destino pendente"
+          : `${item.progress}/${item.target}`;
+        const actionLabel = item.state === "available"
+          ? "Aceitar"
+          : item.state === "active"
+            ? "Rastrear"
+            : item.state === "completed"
+              ? "Pronto para entregar"
+              : "Concluída";
+        button.innerHTML = `
+          <div class="quest-item-title">${item.title}</div>
+          <div class="quest-item-meta">${item.desc}</div>
+          <div class="quest-item-meta">Progresso: ${progressText}</div>
+          <div class="quest-item-action">${actionLabel}</div>
+        `;
+      }
+      questList.appendChild(button);
+    });
+    renderQuestDetails(questListItems[questIndex]);
+  };
+
+  questList.addEventListener("mousemove", (event) => {
+    if (state !== "dialog_quests") return;
+    const item = event.target.closest(".quest-item");
+    if (!item) return;
+    const index = Number(item.dataset.index);
+    if (Number.isNaN(index) || index === questIndex) return;
+    questIndex = index;
+    renderQuestDialog();
+  });
+
+  questList.addEventListener("click", (event) => {
+    if (state !== "dialog_quests") return;
+    const item = event.target.closest(".quest-item");
+    if (!item) return;
+    const index = Number(item.dataset.index);
+    if (Number.isNaN(index)) return;
+    questIndex = index;
+    renderQuestDialog();
+    if (questView === "menu") {
+      handleQuestMenuAction(item.dataset.action);
+      return;
+    }
+    if (item.classList.contains("is-disabled")) return;
+    const quest = gameState.quests[item.dataset.questId];
+    if (!quest) return;
+    if (questView === "missions") {
+      handleQuestMissionAction(quest);
+    } else if (questView === "rewards") {
+      claimQuestReward(quest);
+    }
+  });
+
+  questDetails.addEventListener("click", (event) => {
+    if (state !== "dialog_quests") return;
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const quest = gameState.quests[button.dataset.questId];
+    if (!quest) return;
+    if (button.dataset.action === "accept") {
+      acceptQuest(quest);
+    } else if (button.dataset.action === "track") {
+      trackQuest(quest);
+    } else if (button.dataset.action === "claim") {
+      claimQuestReward(quest);
+    }
+  });
+
   const setState = (next) => {
     if (state === next) return;
     state = next;
+    if (state !== "dialog_quests") {
+      hideQuestDialog();
+    }
     if (state === "game") {
       hidePause();
       hideInventory();
       showGame();
       stopMenuLoop();
       startGame();
+    } else if (state === "dialog_quests") {
+      hidePause();
+      hideInventory();
+      showGame();
+      stopMenuLoop();
+      stopGame();
+      showQuestDialog();
+      renderQuestDialog();
     } else if (state === "pause") {
       hideInventory();
       showGame();
@@ -389,9 +741,12 @@ import {
       y: player.y
     },
     souls: player.souls,
+    gold: gameState.gold,
     lastBonfireId: player.checkpoint?.id || null,
     abilities: { ...player.abilities },
     visitedZones: [...visitedZones],
+    questDrops: { ...gameState.questDrops },
+    quests: { ...gameState.quests },
     flags: {
       bossDefeated,
       doorFlags: { ...doorFlags },
@@ -496,6 +851,7 @@ import {
     const savedPlayer = data.player || {};
     const savedCheckpoint = data.checkpoint || savedPlayer.checkpoint;
     const savedSouls = Number.isFinite(data.souls) ? data.souls : savedPlayer.souls;
+    const savedGold = Number.isFinite(data.gold) ? data.gold : null;
     if (Number.isFinite(savedPlayer.hp)) player.hp = savedPlayer.hp;
     if (Number.isFinite(savedPlayer.hpMax)) player.hpMax = savedPlayer.hpMax;
     if (Number.isFinite(savedPlayer.estus)) player.estus = savedPlayer.estus;
@@ -503,6 +859,15 @@ import {
     if (Number.isFinite(savedPlayer.x)) player.x = savedPlayer.x;
     if (Number.isFinite(savedPlayer.y)) player.y = savedPlayer.y;
     if (Number.isFinite(savedSouls)) player.souls = savedSouls;
+    gameState.gold = Number.isFinite(savedGold) ? savedGold : 0;
+    if (data.questDrops) {
+      gameState.questDrops = {
+        fragment: Number.isFinite(data.questDrops.fragment) ? data.questDrops.fragment : 0
+      };
+    } else {
+      gameState.questDrops = { fragment: 0 };
+    }
+    gameState.quests = normalizeQuestData(data.quests);
     playtimeSeconds = Number.isFinite(data.playtimeSeconds) ? data.playtimeSeconds : 0;
     autosaveTimer = 0;
     if (savedCheckpoint) {
@@ -1550,6 +1915,39 @@ import {
         }
         return;
       }
+      if (state === "dialog_quests") {
+        if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
+        if (!canProcessUiInput(e)) return;
+        if (key === "arrowup") {
+          questIndex = (questIndex - 1 + questListItems.length) % questListItems.length;
+          renderQuestDialog();
+        }
+        if (key === "arrowdown") {
+          questIndex = (questIndex + 1) % questListItems.length;
+          renderQuestDialog();
+        }
+        if (key === "enter") {
+          const item = questListItems[questIndex];
+          if (questView === "menu") {
+            handleQuestMenuAction(item?.action);
+          } else if (item && item.kind !== "empty") {
+            const quest = gameState.quests[item.id];
+            if (questView === "missions") {
+              handleQuestMissionAction(quest);
+            } else if (questView === "rewards") {
+              claimQuestReward(quest);
+            }
+          }
+        }
+        if (key === "escape") {
+          if (questView !== "menu") {
+            setQuestView("menu");
+          } else {
+            setState("game");
+          }
+        }
+        return;
+      }
       if (state === "profiles") {
         if (["arrowup","arrowdown","enter","escape"].includes(key)) e.preventDefault();
         if (!canProcessUiInput(e)) return;
@@ -1880,6 +2278,9 @@ import {
         ], ZONE_X.ruins),
         pickups: offsetList([
           { id: "pickup_long_sword", type: "weapon", itemId: "long_sword", x: 620, y: 700 - YSHIFT }
+        ], ZONE_X.ruins),
+        npcs: offsetList([
+          { id: "quest_giver", type: "quest", name: "A Santa da Ruína", x: 360, y: 712 - YSHIFT, w: 28, h: 46 }
         ], ZONE_X.ruins)
       },
       {
@@ -2018,6 +2419,7 @@ import {
     level.bonfires = worldBonfires;
 
     let activeEnemies = [];
+    let activeNpcs = [];
     const activeChunks = new Set();
     const doorFlags = {
       hub_shortcut: false
@@ -2310,6 +2712,7 @@ import {
         currentZone = zone;
         zoneText.textContent = zone.name;
         toast(`Zona: ${zone.name}`);
+        updateReachQuests(zone.id);
       }
       if (zone && !visitedZones.has(zone.id)) {
         visitedZones.add(zone.id);
@@ -2333,6 +2736,7 @@ import {
     const updateActiveChunks = () => {
       activeChunks.clear();
       activeEnemies = [];
+      activeNpcs = [];
       const px = player.x + player.w / 2;
       const py = player.y + player.h / 2;
       for (const chunk of chunks){
@@ -2342,6 +2746,9 @@ import {
           activeChunks.add(chunk);
           if (chunk.enemies){
             activeEnemies.push(...chunk.enemies);
+          }
+          if (chunk.npcs) {
+            activeNpcs.push(...chunk.npcs);
           }
         }
       }
@@ -2653,6 +3060,15 @@ import {
         }
         return;
       }
+      const fragmentDropChance = 0.35;
+      if (Math.random() <= fragmentDropChance) {
+        createChunkDrop(chunk, {
+          x: enemy.x + enemy.w / 2 - 10,
+          y: enemy.y + enemy.h - 18,
+          type: "quest",
+          itemId: "fragment"
+        });
+      }
       const commonDropChance = 0.03;
       if (Math.random() <= commonDropChance){
         const candidates = ["bitter_tonic", "ash_draught"].filter((id) => !isItemOwned("consumable", id));
@@ -2666,6 +3082,7 @@ import {
         });
         toast("Algo caiu ao chão.");
       }
+      updateKillQuests(enemy);
     };
 
     function tryExecute(){
@@ -2840,7 +3257,13 @@ import {
           const itemBox = { x: drop.x, y: drop.y, w: 22, h: 22 };
           if (rectsOverlap(p, itemBox)){
             let collected = false;
-            if (drop.type === "ability"){
+            if (drop.type === "quest") {
+              gameState.questDrops[drop.itemId] = (gameState.questDrops[drop.itemId] || 0) + 1;
+              toast("Fragmento +1");
+              updateCollectQuests(drop.itemId);
+              requestSave("quest_drop");
+              collected = true;
+            } else if (drop.type === "ability"){
               collected = handleAbilityPickup(drop);
             } else {
               collected = grantItem(drop.type, drop.itemId);
@@ -2869,6 +3292,29 @@ import {
         checkList(chunk.drops, true);
       }
     }
+
+    const getQuestGiverInRange = () => {
+      const px = player.x + player.w / 2;
+      const py = player.y + player.h / 2;
+      for (const npc of activeNpcs) {
+        if (npc.type !== "quest") continue;
+        const nx = npc.x + npc.w / 2;
+        const ny = npc.y + npc.h / 2;
+        const d = Math.hypot(px - nx, py - ny);
+        if (d <= 80) return npc;
+      }
+      return null;
+    };
+
+    const tryOpenQuestDialog = () => {
+      const npc = getQuestGiverInRange();
+      if (!npc) return false;
+      questView = "menu";
+      questIndex = 0;
+      renderQuestDialog();
+      setState("dialog_quests");
+      return true;
+    };
 
     function tryOpenDoor(){
       const p = { x: player.x, y: player.y, w: player.w, h: player.h };
@@ -3180,6 +3626,7 @@ import {
         bossRewardClaimed = false;
         localStorage.removeItem(bossDefeatedKey);
         localStorage.removeItem(bossRewardClaimedKey);
+        gameState = createDefaultGameState();
       }
       const p = makePlayer();
       Object.assign(player, p);
@@ -3388,9 +3835,11 @@ import {
       if (input.drink) startDrink();
   
       if (input.interact){
-        tryPickupItems();
-        tryOpenDoor();
-        restAtBonfire();
+        if (!tryOpenQuestDialog()) {
+          tryPickupItems();
+          tryOpenDoor();
+          restAtBonfire();
+        }
       }
   
       // Move & collide
@@ -3624,7 +4073,8 @@ import {
           armor: "rgba(140,200,255,.9)",
           relic: "rgba(210,170,255,.9)",
           consumable: "rgba(120,220,160,.9)",
-          ability: "rgba(180,220,255,.9)"
+          ability: "rgba(180,220,255,.9)",
+          quest: "rgba(255,214,120,.9)"
         };
         const glow = colors[drop.type] || "rgba(200,200,200,.9)";
         ctx.fillStyle = glow;
@@ -3641,6 +4091,25 @@ import {
       for (const chunk of activeChunks){
         chunk.pickups?.forEach((pickup) => drawLoot(pickup));
         chunk.drops?.forEach((drop) => drawLoot(drop));
+      }
+
+      for (const npc of activeNpcs) {
+        ctx.globalAlpha = 0.28;
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.ellipse(npc.x + npc.w / 2 + ox, npc.y + npc.h + oy, 16, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = "rgba(200,190,175,.85)";
+        ctx.fillRect(npc.x + ox, npc.y + oy, npc.w, npc.h);
+        ctx.fillStyle = "#0a0c12";
+        ctx.fillRect(npc.x + 8 + ox, npc.y + 16 + oy, 4, 4);
+
+        ctx.fillStyle = "rgba(255,220,170,.9)";
+        ctx.beginPath();
+        ctx.arc(npc.x + npc.w / 2 + ox, npc.y - 8 + oy, 4, 0, Math.PI * 2);
+        ctx.fill();
       }
   
       // Enemies
@@ -3754,6 +4223,13 @@ import {
         ctx.fillText(hint, nb.b.x - 40 + ox, nb.b.y - 10 + oy);
       }
 
+      const questNpc = getQuestGiverInRange();
+      if (questNpc && state === "game") {
+        ctx.fillStyle = "rgba(255,235,200,.9)";
+        ctx.font = "14px ui-sans-serif, system-ui, Arial";
+        ctx.fillText("Pressione E para falar", questNpc.x - 30 + ox, questNpc.y - 12 + oy);
+      }
+
       const viewRect = { x: cam.x, y: cam.y, w: canvas.width, h: canvas.height };
       for (const zone of zones){
         if (visitedZones.has(zone.id)) continue;
@@ -3807,6 +4283,7 @@ import {
       hpText.textContent = `${Math.floor(player.hp)}/${player.hpMax}`;
       stText.textContent = `${Math.floor(player.st)}/${player.stMax}`;
       soulsText.textContent = `${player.souls}`;
+      goldText.textContent = `${gameState.gold}`;
       estusText.textContent = `${player.estus}/${player.estusMax}`;
 
       if (deathFade.t > 0){
