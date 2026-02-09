@@ -2215,6 +2215,24 @@ import {
         description: "Um juramento forjado na arena, trazendo vigor e foco.",
         stats: { effects: [{ type: "staminaRegen", value: 10, label: "+10 regen stamina" }, { type: "estusMax", value: 1, label: "+1 Estus" }] }
       },
+      relic_warden_lantern: {
+        id: "relic_warden_lantern",
+        name: "Lanterna do Vigia",
+        type: "relic",
+        rarity: "epic",
+        icon: "✺",
+        description: "Uma chama que revela caminhos secretos e acalma a exaustão.",
+        stats: { effects: [{ type: "staminaRegen", value: 8, label: "+8 regen stamina" }] }
+      },
+      key_umbra_seal: {
+        id: "key_umbra_seal",
+        name: "Selo Umbrático",
+        type: "material",
+        rarity: "rare",
+        icon: "⌂",
+        stackable: false,
+        description: "Um selo pesado que abre o cofre lacrado."
+      },
       material_iron_shard: {
         id: "material_iron_shard",
         name: "Fragmento de Ferro",
@@ -2564,9 +2582,39 @@ import {
     }
   
     function makeEnemy(x, y, kind="hollow"){
-      const base = (kind === "knight")
-        ? {hpMax: 160, dmg: 22, speed: 150, aggro: 520, windup: 0.25, cooldown: 0.65, poiseMax: 90}
-        : {hpMax: 90, dmg: 14, speed: 120, aggro: 420, windup: 0.25, cooldown: 0.70, poiseMax: 60};
+      let base;
+      if (kind === "knight") {
+        base = {hpMax: 160, dmg: 22, speed: 150, aggro: 520, windup: 0.25, cooldown: 0.65, poiseMax: 90};
+      } else if (kind === "stalker") {
+        base = {
+          hpMax: 110,
+          dmg: 18,
+          speed: 160,
+          aggro: 520,
+          windup: 0.2,
+          cooldown: 0.55,
+          poiseMax: 70,
+          leapPower: 720,
+          leapRangeMin: 120,
+          leapRangeMax: 260,
+          leapCooldown: 1.4
+        };
+      } else if (kind === "charger") {
+        base = {
+          hpMax: 140,
+          dmg: 24,
+          speed: 170,
+          aggro: 540,
+          windup: 0.24,
+          cooldown: 0.75,
+          poiseMax: 85,
+          chargeSpeed: 420,
+          chargeDuration: 0.35,
+          chargeCooldown: 1.8
+        };
+      } else {
+        base = {hpMax: 90, dmg: 14, speed: 120, aggro: 420, windup: 0.25, cooldown: 0.70, poiseMax: 60};
+      }
   
       return {
         kind,
@@ -2581,6 +2629,9 @@ import {
         poise: base.poiseMax,
         staggerT: 0,
         attackCD: 0,
+        leapCD: 0,
+        chargeCD: 0,
+        attackHit: false,
         missRecover: 0.22,
   
         // ai
@@ -2601,6 +2652,15 @@ import {
         phaseThresholds: [0.66, 0.33],
         goldReward: 380,
         uniqueReward: { type: "relic", itemId: "relic_penitent_sigil" }
+      },
+      warden: {
+        id: "warden",
+        name: "O Vigia da Torre",
+        hpMax: 980,
+        poiseMax: 200,
+        phaseThresholds: [0.68, 0.34],
+        goldReward: 320,
+        uniqueReward: { type: "relic", itemId: "relic_warden_lantern" }
       }
     };
 
@@ -2644,22 +2704,33 @@ import {
     miniBossKnight.isMiniBoss = true;
     miniBossKnight.dropItem = { type: "weapon", itemId: "weapon_great_sword" };
 
-    const WORLD = { w: 13000, h: 1400 };
+    const miniBossCharger = makeEnemy(980, 1040 - YSHIFT, "charger");
+    miniBossCharger.id = "mini_boss_charger";
+    miniBossCharger.isMiniBoss = true;
+    miniBossCharger.dropItem = { type: "material", itemId: "key_umbra_seal" };
+
+    const WORLD = { w: 16800, h: 1400 };
     const ZONE_X = {
       gallery: 0,
       ruins: 2400,
       antechamber: 4600,
       boss: 6200,
       foundry: 8200,
-      abyss: 10400
+      tower: 10400,
+      undercroft: 10400,
+      abyss: 12400,
+      vault: 15000
     };
     const ZONE_W = {
       gallery: 2400,
       ruins: 2200,
-      abyss: 2600,
       antechamber: 1600,
       boss: 2000,
-      foundry: 2200
+      foundry: 2200,
+      tower: 2000,
+      undercroft: 2000,
+      vault: 1800,
+      abyss: 2600
     };
 
     // Zonas (metroidvania) com world rects.
@@ -2669,7 +2740,17 @@ import {
       { id: "antechamber", name: "Ante-câmara", rect: { x: ZONE_X.antechamber, y: 0, w: ZONE_W.antechamber, h: WORLD.h } },
       { id: "boss", name: "Santuário do Penitente", rect: { x: ZONE_X.boss, y: 0, w: ZONE_W.boss, h: WORLD.h }, isBoss: true, bossId: PRIMARY_BOSS_ID },
       { id: "foundry", name: "Forja Soterrada", rect: { x: ZONE_X.foundry, y: 0, w: ZONE_W.foundry, h: WORLD.h } },
-      { id: "abyss", name: "Abismo Silencioso", rect: { x: ZONE_X.abyss, y: 0, w: ZONE_W.abyss, h: WORLD.h } }
+      {
+        id: "tower_boss",
+        name: "Cume da Torre",
+        rect: { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 260 },
+        isBoss: true,
+        bossId: "warden"
+      },
+      { id: "tower", name: "Torre dos Ecos", rect: { x: ZONE_X.tower, y: 0, w: ZONE_W.tower, h: 600 } },
+      { id: "undercroft", name: "Cripta Submersa", rect: { x: ZONE_X.undercroft, y: 600, w: ZONE_W.undercroft, h: 800 } },
+      { id: "abyss", name: "Abismo Silencioso", rect: { x: ZONE_X.abyss, y: 0, w: ZONE_W.abyss, h: WORLD.h } },
+      { id: "vault", name: "Cofre Lacrado", rect: { x: ZONE_X.vault, y: 0, w: ZONE_W.vault, h: WORLD.h } }
     ];
     const zoneMap = new Map(zones.map((zone) => [zone.id, zone]));
 
@@ -2799,7 +2880,17 @@ import {
         ], ZONE_X.abyss),
         gates: [
           // Parede alta: exige WALL JUMP.
-          makeGate({ id: "wall_gate", type: "wall", x: ZONE_X.abyss + 1980, y: 380 - YSHIFT, w: 40, h: 280 })
+          makeGate({ id: "wall_gate", type: "wall", x: ZONE_X.abyss + 1980, y: 380 - YSHIFT, w: 40, h: 280 }),
+          makeGate({
+            id: "vault_gate",
+            type: "key",
+            hint: "O selo do cofre permanece fechado.",
+            requiredItemId: "key_umbra_seal",
+            x: ZONE_X.vault - 48,
+            y: 700 - YSHIFT,
+            w: 48,
+            h: 120
+          })
         ],
         enemies: offsetEnemies([
           makeEnemy(1500, 500 - YSHIFT, "knight")
@@ -2868,6 +2959,7 @@ import {
           makeGate({ id: "boss_gate_left", type: "boss", x: ZONE_X.boss + 400, y: 560 - YSHIFT, w: 24, h: 220 }),
           makeGate({ id: "boss_gate_right", type: "boss", x: ZONE_X.boss + 400 + 1600 - 24, y: 560 - YSHIFT, w: 24, h: 220 })
         ],
+        bossSpawn: { x: ZONE_X.boss + 400 + 1200, y: 670 - YSHIFT, bossId: PRIMARY_BOSS_ID },
         boss: makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT, PRIMARY_BOSS_ID)
       },
       // FORJA: novas salas além do boss.
@@ -2893,20 +2985,32 @@ import {
         zoneId: "foundry",
         rect: { x: ZONE_X.foundry + 1000, y: 0, w: 1200, h: WORLD.h },
         solids: offsetList([
-          { x: 1000, y: 780 - YSHIFT, w: 1600, h: 120 },
+          { x: 1000, y: 780 - YSHIFT, w: 520, h: 120 },
+          { x: 1600, y: 780 - YSHIFT, w: 600, h: 120 },
           { x: 1180, y: 680 - YSHIFT, w: 280, h: 24 },
           { x: 1500, y: 600 - YSHIFT, w: 220, h: 24 },
-          { x: 1820, y: 520 - YSHIFT, w: 260, h: 24 }
+          { x: 1820, y: 520 - YSHIFT, w: 260, h: 24 },
+          { x: 1900, y: 460 - YSHIFT, w: 200, h: 24 },
+          { x: 1900, y: 980 - YSHIFT, w: 260, h: 24 }
         ], ZONE_X.foundry),
         gates: [
           makeGate({
-            id: "abyss_gate",
-            type: "abyss",
-            hint: "Falta uma técnica para atravessar a névoa do Abismo.",
-            x: ZONE_X.abyss - 52,
-            y: 700 - YSHIFT,
-            w: 52,
-            h: 80
+            id: "tower_gate",
+            type: "wall",
+            hint: "As pedras da torre exigem saltos entre paredes.",
+            x: ZONE_X.tower - 36,
+            y: 460 - YSHIFT,
+            w: 36,
+            h: 160
+          }),
+          makeGate({
+            id: "undercroft_gate",
+            type: "sprint",
+            hint: "Precisa de impulso para atravessar o desfiladeiro.",
+            x: ZONE_X.tower - 36,
+            y: 960 - YSHIFT,
+            w: 36,
+            h: 120
           })
         ],
         bonfires: offsetList([
@@ -2920,6 +3024,162 @@ import {
         pickups: offsetList([
           { id: "pickup_armor_plate", type: "armor", itemId: "armor_plate", x: 1880, y: 480 - YSHIFT }
         ], ZONE_X.foundry)
+      },
+      // TORRE: verticalidade e chefe opcional.
+      {
+        id: "tower_base",
+        zoneId: "tower",
+        rect: { x: ZONE_X.tower, y: 0, w: 700, h: 600 },
+        solids: offsetList([
+          { x: 0, y: 720 - YSHIFT, w: 900, h: 120 },
+          { x: 140, y: 600 - YSHIFT, w: 180, h: 24 },
+          { x: 380, y: 540 - YSHIFT, w: 200, h: 24 },
+          { x: 80, y: 460 - YSHIFT, w: 160, h: 24 },
+          { x: 320, y: 400 - YSHIFT, w: 140, h: 24 }
+        ], ZONE_X.tower),
+        enemies: offsetEnemies([
+          makeEnemy(260, 700 - YSHIFT, "stalker"),
+          makeEnemy(480, 520 - YSHIFT, "hollow")
+        ], ZONE_X.tower),
+        pickups: offsetList([
+          { id: "pickup_tower_shard", type: "material", itemId: "material_iron_shard", x: 200, y: 560 - YSHIFT }
+        ], ZONE_X.tower)
+      },
+      {
+        id: "tower_mid",
+        zoneId: "tower",
+        rect: { x: ZONE_X.tower + 700, y: 0, w: 700, h: 600 },
+        solids: offsetList([
+          { x: 700, y: 720 - YSHIFT, w: 700, h: 120 },
+          { x: 820, y: 620 - YSHIFT, w: 200, h: 24 },
+          { x: 1080, y: 540 - YSHIFT, w: 200, h: 24 },
+          { x: 900, y: 460 - YSHIFT, w: 180, h: 24 },
+          { x: 1160, y: 380 - YSHIFT, w: 160, h: 24 }
+        ], ZONE_X.tower),
+        enemies: offsetEnemies([
+          makeEnemy(900, 700 - YSHIFT, "charger"),
+          makeEnemy(1160, 500 - YSHIFT, "stalker")
+        ], ZONE_X.tower)
+      },
+      {
+        id: "tower_summit",
+        zoneId: "tower",
+        rect: { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 600 },
+        solids: offsetList([
+          { x: 1400, y: 720 - YSHIFT, w: 800, h: 120 },
+          { x: 1500, y: 560 - YSHIFT, w: 220, h: 24 },
+          { x: 1780, y: 480 - YSHIFT, w: 160, h: 24 },
+          { x: 1660, y: 400 - YSHIFT, w: 180, h: 24 }
+        ], ZONE_X.tower),
+        gates: [
+          makeGate({ id: "tower_boss_left", type: "boss", x: ZONE_X.tower + 1460, y: 360 - YSHIFT, w: 24, h: 220 }),
+          makeGate({ id: "tower_boss_right", type: "boss", x: ZONE_X.tower + 1400 + 520, y: 360 - YSHIFT, w: 24, h: 220 }),
+          makeGate({
+            id: "tower_to_abyss",
+            type: "dash",
+            hint: "Um impulso aéreo abre caminho para além da torre.",
+            x: ZONE_X.abyss - 36,
+            y: 700 - YSHIFT,
+            w: 36,
+            h: 160
+          })
+        ],
+        bossSpawn: { x: ZONE_X.tower + 1400 + 320, y: 520 - YSHIFT, bossId: "warden" },
+        boss: makeBoss(ZONE_X.tower + 1400 + 320, 520 - YSHIFT, "warden")
+      },
+      // CRIPTA SUBMERSA: área subterrânea.
+      {
+        id: "undercroft_entry",
+        zoneId: "undercroft",
+        rect: { x: ZONE_X.undercroft, y: 600, w: 700, h: 800 },
+        solids: offsetList([
+          { x: 0, y: 1080 - YSHIFT, w: 900, h: 140 },
+          { x: 160, y: 960 - YSHIFT, w: 220, h: 24 },
+          { x: 420, y: 900 - YSHIFT, w: 200, h: 24 },
+          { x: 120, y: 860 - YSHIFT, w: 180, h: 24 }
+        ], ZONE_X.undercroft),
+        enemies: offsetEnemies([
+          makeEnemy(260, 1040 - YSHIFT, "hollow"),
+          makeEnemy(520, 880 - YSHIFT, "stalker")
+        ], ZONE_X.undercroft),
+        pickups: offsetList([
+          { id: "pickup_crypt_shard", type: "material", itemId: "material_iron_shard", x: 200, y: 920 - YSHIFT }
+        ], ZONE_X.undercroft)
+      },
+      {
+        id: "undercroft_depths",
+        zoneId: "undercroft",
+        rect: { x: ZONE_X.undercroft + 700, y: 600, w: 700, h: 800 },
+        solids: offsetList([
+          { x: 700, y: 1080 - YSHIFT, w: 900, h: 140 },
+          { x: 860, y: 960 - YSHIFT, w: 200, h: 24 },
+          { x: 1120, y: 900 - YSHIFT, w: 200, h: 24 },
+          { x: 980, y: 820 - YSHIFT, w: 160, h: 24 }
+        ], ZONE_X.undercroft),
+        enemies: offsetEnemies([
+          miniBossCharger
+        ], ZONE_X.undercroft),
+        pickups: offsetList([
+          { id: "pickup_crypt_mail", type: "armor", itemId: "armor_mail", x: 1160, y: 880 - YSHIFT }
+        ], ZONE_X.undercroft)
+      },
+      {
+        id: "undercroft_warren",
+        zoneId: "undercroft",
+        rect: { x: ZONE_X.undercroft + 1400, y: 600, w: 600, h: 800 },
+        solids: offsetList([
+          { x: 1400, y: 1080 - YSHIFT, w: 800, h: 140 },
+          { x: 1500, y: 960 - YSHIFT, w: 240, h: 24 },
+          { x: 1780, y: 900 - YSHIFT, w: 180, h: 24 }
+        ], ZONE_X.undercroft),
+        gates: [
+          makeGate({
+            id: "undercroft_to_abyss",
+            type: "sprint",
+            hint: "A corrente subterrânea só cede com fôlego extra.",
+            x: ZONE_X.abyss - 36,
+            y: 980 - YSHIFT,
+            w: 36,
+            h: 140
+          })
+        ],
+        enemies: offsetEnemies([
+          makeEnemy(1560, 1040 - YSHIFT, "stalker"),
+          makeEnemy(1820, 880 - YSHIFT, "hollow")
+        ], ZONE_X.undercroft)
+      },
+      // COFRE LACRADO: área bloqueada por item.
+      {
+        id: "vault_entry",
+        zoneId: "vault",
+        rect: { x: ZONE_X.vault, y: 0, w: 900, h: WORLD.h },
+        solids: offsetList([
+          { x: 0, y: 780 - YSHIFT, w: 1200, h: 120 },
+          { x: 220, y: 640 - YSHIFT, w: 220, h: 24 },
+          { x: 520, y: 560 - YSHIFT, w: 220, h: 24 }
+        ], ZONE_X.vault),
+        enemies: offsetEnemies([
+          makeEnemy(320, 740, "charger"),
+          makeEnemy(620, 520 - YSHIFT, "stalker")
+        ], ZONE_X.vault)
+      },
+      {
+        id: "vault_core",
+        zoneId: "vault",
+        rect: { x: ZONE_X.vault + 900, y: 0, w: 900, h: WORLD.h },
+        solids: offsetList([
+          { x: 900, y: 780 - YSHIFT, w: 1200, h: 120 },
+          { x: 1040, y: 660 - YSHIFT, w: 220, h: 24 },
+          { x: 1320, y: 580 - YSHIFT, w: 220, h: 24 },
+          { x: 1580, y: 500 - YSHIFT, w: 200, h: 24 }
+        ], ZONE_X.vault),
+        enemies: offsetEnemies([
+          makeEnemy(1080, 740, "stalker"),
+          makeEnemy(1460, 540 - YSHIFT, "charger")
+        ], ZONE_X.vault),
+        pickups: offsetList([
+          { id: "pickup_vault_relic", type: "relic", itemId: "relic_ember", x: 1660, y: 460 - YSHIFT }
+        ], ZONE_X.vault)
       }
     ];
 
@@ -3552,6 +3812,9 @@ import {
     if (!visitedZones.size) {
       visitedZones = new Set([currentZoneId]);
     }
+    const getBossChunk = (bossId) => chunks.find((chunk) =>
+      (chunk.bossSpawn && chunk.bossSpawn.bossId === bossId) || (chunk.boss && chunk.boss.id === bossId)
+    );
     let boss = chunks.find((chunk) => chunk.boss)?.boss || null;
     let bossActive = false;
     let currentBossId = boss?.id || PRIMARY_BOSS_ID;
@@ -3613,9 +3876,9 @@ import {
     };
 
     const resetBoss = (bossId = PRIMARY_BOSS_ID) => {
-      const arena = chunks.find((chunk) => chunk.id === "boss_arena");
-      if (!arena?.boss) return;
-      arena.boss = makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT, bossId);
+      const arena = getBossChunk(bossId);
+      if (!arena?.bossSpawn) return;
+      arena.boss = makeBoss(arena.bossSpawn.x, arena.bossSpawn.y, bossId);
       boss = arena.boss;
     };
 
@@ -3659,38 +3922,39 @@ import {
     };
 
     const syncBossArenaState = () => {
-      const arena = chunks.find((chunk) => chunk.id === "boss_arena");
-      if (!arena?.boss) return;
-      if (isBossDefeated(arena.boss.id)){
-        arena.boss.hp = 0;
-        arena.boss.state = "dead";
-        arena.bonfires?.forEach((b) => { b.locked = false; });
-        if (!isBossRewardClaimed(arena.boss.id)){
-          const existingReward = arena.drops?.some((drop) => drop.isBossReward);
-          if (!existingReward){
-            createChunkDrop(arena, {
-              id: "boss_reward",
-              x: arena.boss.x - 40,
-              y: arena.boss.y + arena.boss.h - 18,
-              type: "material",
-              itemId: "material_ashen_core",
-              isBossReward: true
-            });
+      const bossChunks = chunks.filter((chunk) => chunk.boss);
+      bossChunks.forEach((arena) => {
+        if (isBossDefeated(arena.boss.id)){
+          arena.boss.hp = 0;
+          arena.boss.state = "dead";
+          arena.bonfires?.forEach((b) => { b.locked = false; });
+          if (!isBossRewardClaimed(arena.boss.id)){
+            const existingReward = arena.drops?.some((drop) => drop.isBossReward);
+            if (!existingReward){
+              createChunkDrop(arena, {
+                id: `boss_reward_${arena.boss.id}`,
+                x: arena.boss.x - 40,
+                y: arena.boss.y + arena.boss.h - 18,
+                type: "material",
+                itemId: "material_ashen_core",
+                isBossReward: true
+              });
+            }
+          }
+          if (arena.boss.uniqueReward && !isItemInInventory(arena.boss.uniqueReward.itemId)) {
+            const existingUnique = arena.drops?.some((drop) => drop.id === `boss_unique_reward_${arena.boss.id}`);
+            if (!existingUnique){
+              createChunkDrop(arena, {
+                id: `boss_unique_reward_${arena.boss.id}`,
+                x: arena.boss.x + 28,
+                y: arena.boss.y + arena.boss.h - 18,
+                type: arena.boss.uniqueReward.type,
+                itemId: arena.boss.uniqueReward.itemId
+              });
+            }
           }
         }
-        if (arena.boss.uniqueReward && !isItemInInventory(arena.boss.uniqueReward.itemId)) {
-          const existingUnique = arena.drops?.some((drop) => drop.id === "boss_unique_reward");
-          if (!existingUnique){
-            createChunkDrop(arena, {
-              id: "boss_unique_reward",
-              x: arena.boss.x + 28,
-              y: arena.boss.y + arena.boss.h - 18,
-              type: arena.boss.uniqueReward.type,
-              itemId: arena.boss.uniqueReward.itemId
-            });
-          }
-        }
-      }
+      });
     };
 
     const getZoneForPosition = (x, y) => zones.find((zone) =>
@@ -3871,12 +4135,15 @@ import {
       if (solid.type === "pogo") {
         return gameState.unlocks.pogo && player.attackType === "plunge" && player.vy > 0;
       }
+      if (solid.type === "key") {
+        return isItemInInventory(solid.requiredItemId);
+      }
       return false;
     };
 
     const shouldCollideWithSolid = (solid, ent) => {
       if (!solid.gate) return true;
-      if (solid.type === "dash" || solid.type === "sprint" || solid.type === "pogo" || solid.type === "abyss"){
+      if (solid.type === "dash" || solid.type === "sprint" || solid.type === "pogo" || solid.type === "abyss" || solid.type === "key"){
         if (ent !== player) return true;
         return !canPassGate(solid, ent);
       }
@@ -3901,7 +4168,8 @@ import {
             const needsDash = s.type === "dash" && !player.abilities.dash;
             const needsWall = s.type === "wall" && !player.wallJumpUnlocked;
             const needsPogo = s.type === "pogo" && !gameState.unlocks.pogo;
-            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo){
+            const needsKey = s.type === "key" && !isItemInInventory(s.requiredItemId);
+            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo || needsKey){
               toast(s.hint || "Uma técnica te falta…");
               gateToastCooldown = 1.2;
             }
@@ -3924,7 +4192,8 @@ import {
             const needsDash = s.type === "dash" && !player.abilities.dash;
             const needsWall = s.type === "wall" && !player.wallJumpUnlocked;
             const needsPogo = s.type === "pogo" && !gameState.unlocks.pogo;
-            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo){
+            const needsKey = s.type === "key" && !isItemInInventory(s.requiredItemId);
+            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo || needsKey){
               toast(s.hint || "Uma técnica te falta…");
               gateToastCooldown = 1.2;
             }
@@ -4071,11 +4340,17 @@ import {
     }
 
     function getEnemySoulValue(e){
-      return (e.kind === "knight") ? 180 : 90;
+      if (e.kind === "knight") return 180;
+      if (e.kind === "charger") return 160;
+      if (e.kind === "stalker") return 130;
+      return 90;
     }
 
     function getExecutionBonus(e){
-      return (e.kind === "knight") ? 120 : 60;
+      if (e.kind === "knight") return 120;
+      if (e.kind === "charger") return 100;
+      if (e.kind === "stalker") return 80;
+      return 60;
     }
 
     // ===== Items & Drops =====
@@ -4424,6 +4699,8 @@ import {
       e.invulT = Math.max(0, e.invulT - dt);
       e.staggerT = Math.max(0, e.staggerT - dt);
       e.attackCD = Math.max(0, e.attackCD - dt);
+      e.leapCD = Math.max(0, e.leapCD - dt);
+      e.chargeCD = Math.max(0, e.chargeCD - dt);
   
       const px = player.x + player.w/2;
       const ex = e.x + e.w/2;
@@ -4453,17 +4730,35 @@ import {
       }
       else if (e.state === "chase"){
         if (dist > e.aggro * 1.15) e.state = "idle";
-  
+
         // approach
         const targetSpeed = e.speed * facing;
         e.vx = lerp(e.vx, targetSpeed, 0.12);
-  
+
+        if (e.kind === "stalker" && e.onGround && e.leapCD <= 0){
+          if (dist > e.leapRangeMin && dist < e.leapRangeMax){
+            e.state = "leapWindup";
+            e.t = e.windup;
+            e.vx *= 0.2;
+          }
+        }
+
+        if (e.kind === "charger" && e.onGround && e.chargeCD <= 0){
+          if (dist > 160 && dist < 320){
+            e.state = "chargeWindup";
+            e.t = e.windup;
+            e.vx *= 0.3;
+          }
+        }
+
         // attack if close and on ground
-        const range = (e.kind === "knight") ? 56 : 46;
-        if (dist < range && e.onGround && e.attackCD <= 0){
-          e.state = "windup";
-          e.t = e.windup;
-          e.vx *= 0.30;
+        if (e.state === "chase"){
+          const range = (e.kind === "knight") ? 56 : 46;
+          if (dist < range && e.onGround && e.attackCD <= 0){
+            e.state = "windup";
+            e.t = e.windup;
+            e.vx *= 0.30;
+          }
         }
       }
       else if (e.state === "windup"){
@@ -4476,6 +4771,53 @@ import {
         if (e.t <= 0){
           e.state = "attack";
           e.t = 0.12; // active hit frames
+        }
+      }
+      else if (e.state === "leapWindup"){
+        e.vx *= 0.8;
+        if (e.t <= 0){
+          e.state = "leap";
+          e.t = 0.26;
+          e.vy = -e.leapPower;
+          e.vx = facing * (e.speed + 140);
+          e.attackHit = false;
+          e.leapCD = e.leapCooldown;
+        }
+      }
+      else if (e.state === "leap"){
+        const hb = {x: e.x + (facing === 1 ? e.w - 6 : -28), y: e.y + 8, w: 32, h: 30};
+        if (!e.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
+          e.attackHit = true;
+          playerTakeDamage(e.dmg, e.x, e);
+        }
+        if (e.onGround && e.t <= 0){
+          e.state = "recover";
+          e.t = e.cooldown * 0.7;
+          e.attackCD = Math.max(e.attackCD, e.cooldown);
+        }
+      }
+      else if (e.state === "chargeWindup"){
+        e.vx *= 0.7;
+        if (e.t <= 0){
+          e.state = "charge";
+          e.t = e.chargeDuration;
+          e.vx = e.chargeSpeed * facing;
+          e.attackHit = false;
+          e.chargeCD = e.chargeCooldown;
+        }
+      }
+      else if (e.state === "charge"){
+        const hb = {x: e.x + (facing === 1 ? e.w - 6 : -30), y: e.y + 10, w: 34, h: 28};
+        if (!e.attackHit && rectsOverlap(getPlayerHitbox(), hb)){
+          e.attackHit = true;
+          playerTakeDamage(e.dmg + 4, e.x, e);
+          e.t = Math.min(e.t, 0.08);
+        }
+        if (e.t <= 0){
+          e.state = "recover";
+          e.t = e.cooldown;
+          e.attackCD = Math.max(e.attackCD, e.cooldown);
+          e.vx *= 0.3;
         }
       }
       else if (e.state === "attack"){
@@ -5186,6 +5528,7 @@ import {
         else if (gate.type === "wall") ctx.fillStyle = "rgba(150,120,90,.75)";
         else if (gate.type === "pogo") ctx.fillStyle = "rgba(180,110,200,.6)";
         else if (gate.type === "dash") ctx.fillStyle = "rgba(120,170,255,.6)";
+        else if (gate.type === "key") ctx.fillStyle = "rgba(190,150,110,.7)";
         else ctx.fillStyle = "rgba(80,60,50,.7)";
         fillWorldRect(gate.x + ox, gate.y + oy, gate.w, gate.h);
       }
@@ -5295,7 +5638,10 @@ import {
         ctx.globalAlpha = 1;
   
         // body
-        const baseBody = e.kind === "knight" ? "#8b95a8" : "#6d7a8f";
+        let baseBody = "#6d7a8f";
+        if (e.kind === "knight") baseBody = "#8b95a8";
+        if (e.kind === "stalker") baseBody = "#7b6fa6";
+        if (e.kind === "charger") baseBody = "#8a6d5f";
         ctx.fillStyle = baseBody;
         if (e.state === "windup"){
           const pulse = 0.45 + Math.sin(now()/1000 * 18) * 0.25;
