@@ -2276,6 +2276,7 @@ import {
       let left = false;
       let right = false;
       for (const s of level.solids){
+        if (s.oneWay) continue;
         if (s.gate){
           if (s.type === "dash" && ent === player && player.abilities.dash && player.dashT > 0) continue;
           if (s.type === "door" && doorFlags[s.id]) continue;
@@ -2567,6 +2568,7 @@ import {
         jumpBufferTimer: 0,
         jumpHoldTimer: 0,
         jumpHeldPrev: false,
+        dropThroughTimer: 0,
         isSprinting: false,
         wallJumpUnlocked: false,
         abilities: {
@@ -2960,7 +2962,7 @@ import {
           makeGate({ id: "boss_gate_right", type: "boss", x: ZONE_X.boss + 400 + 1600 - 24, y: 560 - YSHIFT, w: 24, h: 220 })
         ],
         bossSpawn: { x: ZONE_X.boss + 400 + 1200, y: 670 - YSHIFT, bossId: PRIMARY_BOSS_ID },
-        boss: makeBoss(ZONE_X.boss + 400 + 1200, 670 - YSHIFT, PRIMARY_BOSS_ID)
+        boss: null
       },
       // FORJA: novas salas além do boss.
       {
@@ -3032,10 +3034,10 @@ import {
         rect: { x: ZONE_X.tower, y: 0, w: 700, h: 600 },
         solids: offsetList([
           { x: 0, y: 720 - YSHIFT, w: 900, h: 120 },
-          { x: 140, y: 600 - YSHIFT, w: 180, h: 24 },
-          { x: 380, y: 540 - YSHIFT, w: 200, h: 24 },
-          { x: 80, y: 460 - YSHIFT, w: 160, h: 24 },
-          { x: 320, y: 400 - YSHIFT, w: 140, h: 24 }
+          { x: 140, y: 600 - YSHIFT, w: 180, h: 24, oneWay: true },
+          { x: 380, y: 540 - YSHIFT, w: 200, h: 24, oneWay: true },
+          { x: 80, y: 460 - YSHIFT, w: 160, h: 24, oneWay: true },
+          { x: 320, y: 400 - YSHIFT, w: 140, h: 24, oneWay: true }
         ], ZONE_X.tower),
         enemies: offsetEnemies([
           makeEnemy(260, 700 - YSHIFT, "stalker"),
@@ -3051,10 +3053,10 @@ import {
         rect: { x: ZONE_X.tower + 700, y: 0, w: 700, h: 600 },
         solids: offsetList([
           { x: 700, y: 720 - YSHIFT, w: 700, h: 120 },
-          { x: 820, y: 620 - YSHIFT, w: 200, h: 24 },
-          { x: 1080, y: 540 - YSHIFT, w: 200, h: 24 },
-          { x: 900, y: 460 - YSHIFT, w: 180, h: 24 },
-          { x: 1160, y: 380 - YSHIFT, w: 160, h: 24 }
+          { x: 820, y: 620 - YSHIFT, w: 200, h: 24, oneWay: true },
+          { x: 1080, y: 540 - YSHIFT, w: 200, h: 24, oneWay: true },
+          { x: 900, y: 460 - YSHIFT, w: 180, h: 24, oneWay: true },
+          { x: 1160, y: 380 - YSHIFT, w: 160, h: 24, oneWay: true }
         ], ZONE_X.tower),
         enemies: offsetEnemies([
           makeEnemy(900, 700 - YSHIFT, "charger"),
@@ -3067,9 +3069,9 @@ import {
         rect: { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 600 },
         solids: offsetList([
           { x: 1400, y: 720 - YSHIFT, w: 800, h: 120 },
-          { x: 1500, y: 560 - YSHIFT, w: 220, h: 24 },
-          { x: 1780, y: 480 - YSHIFT, w: 160, h: 24 },
-          { x: 1660, y: 400 - YSHIFT, w: 180, h: 24 }
+          { x: 1500, y: 560 - YSHIFT, w: 220, h: 24, oneWay: true },
+          { x: 1780, y: 480 - YSHIFT, w: 160, h: 24, oneWay: true },
+          { x: 1660, y: 400 - YSHIFT, w: 180, h: 24, oneWay: true }
         ], ZONE_X.tower),
         gates: [
           makeGate({ id: "tower_boss_left", type: "boss", x: ZONE_X.tower + 1460, y: 360 - YSHIFT, w: 24, h: 220 }),
@@ -3085,7 +3087,7 @@ import {
           })
         ],
         bossSpawn: { x: ZONE_X.tower + 1400 + 320, y: 520 - YSHIFT, bossId: "warden" },
-        boss: makeBoss(ZONE_X.tower + 1400 + 320, 520 - YSHIFT, "warden")
+        boss: null
       },
       // CRIPTA SUBMERSA: área subterrânea.
       {
@@ -3295,9 +3297,26 @@ import {
     const worldGates = chunks.flatMap((chunk) => chunk.gates || []);
     const worldSpikes = chunks.flatMap((chunk) => chunk.spikes || []);
     const worldBonfires = chunks.flatMap((chunk) => chunk.bonfires || []);
+    // Elevador simples para descer/subir na torre.
+    const movingPlatforms = [
+      {
+        id: "tower_elevator",
+        x: ZONE_X.tower + 520,
+        y: 700 - YSHIFT,
+        w: 160,
+        h: 20,
+        minY: 420 - YSHIFT,
+        maxY: 700 - YSHIFT,
+        speed: 70,
+        dir: -1,
+        startY: 700 - YSHIFT,
+        startDir: -1
+      }
+    ];
     const worldSolids = [
       ...chunks.flatMap((chunk) => chunk.solids || []),
-      ...worldGates
+      ...worldGates,
+      ...movingPlatforms
     ];
 
     level.w = WORLD.w;
@@ -3819,6 +3838,12 @@ import {
     let bossActive = false;
     let currentBossId = boss?.id || PRIMARY_BOSS_ID;
     let bossArenaLocked = false;
+    // Boss lifecycle per zone (evita duplicação/respawn indevido).
+    const bossLifecycle = {
+      stateById: {},
+      instanceById: {},
+      instanceCounter: 0
+    };
     const bossDefeatFlash = { t: 0, duration: 0.8 };
 
     const initChunk = (chunk) => {
@@ -3875,11 +3900,23 @@ import {
       saveBossFlagMap(bossRewardClaimedKey, bossRewardClaimed);
     };
 
-    const resetBoss = (bossId = PRIMARY_BOSS_ID) => {
+    const getBossState = (bossId) => {
+      if (bossLifecycle.stateById[bossId]) return bossLifecycle.stateById[bossId];
+      return isBossDefeated(bossId) ? "defeated" : "idle";
+    };
+
+    const setBossState = (bossId, state) => {
+      bossLifecycle.stateById[bossId] = state;
+    };
+
+    const createBossInstance = (bossId = PRIMARY_BOSS_ID) => {
       const arena = getBossChunk(bossId);
       if (!arena?.bossSpawn) return;
-      arena.boss = makeBoss(arena.bossSpawn.x, arena.bossSpawn.y, bossId);
-      boss = arena.boss;
+      const instance = makeBoss(arena.bossSpawn.x, arena.bossSpawn.y, bossId);
+      instance.instanceId = ++bossLifecycle.instanceCounter;
+      bossLifecycle.instanceById[bossId] = instance.instanceId;
+      arena.boss = instance;
+      return instance;
     };
 
     const triggerBossBarShake = () => {
@@ -3889,25 +3926,55 @@ import {
       bossBar.classList.add("shake");
     };
 
-    const startBossEncounter = (bossId) => {
+    const spawnBossEncounter = (bossId) => {
       if (!bossId || isBossDefeated(bossId)) return;
+      const state = getBossState(bossId);
       currentBossId = bossId;
-      if (!boss || boss.id !== bossId) {
-        resetBoss(bossId);
+      if (state === "active") {
+        const arena = getBossChunk(bossId);
+        if (arena?.boss) boss = arena.boss;
+        bossActive = true;
+        bossArenaLocked = true;
+        return;
       }
+      if (state !== "idle" && state !== "despawned") return;
+      boss = createBossInstance(bossId);
+      if (!boss) return;
+      setBossState(bossId, "spawning");
       bossActive = true;
       bossArenaLocked = true;
+      setBossState(bossId, "active");
       if (bossName && boss) {
         bossName.textContent = boss.name.toUpperCase();
       }
     };
 
-    const cancelBossEncounter = (bossId) => {
+    const despawnBossEncounter = (bossId) => {
       if (!bossId || isBossDefeated(bossId)) return;
+      if (getBossState(bossId) !== "active") return;
+      const arena = getBossChunk(bossId);
+      if (arena?.boss) {
+        arena.boss = null;
+      }
+      boss = null;
       bossActive = false;
       bossArenaLocked = false;
-      resetBoss(bossId);
+      setBossState(bossId, "despawned");
+      if (bossBar) bossBar.classList.add("hidden");
       toast("O chefe retornou à arena.");
+    };
+
+    const resetBossEncounter = (bossId) => {
+      if (!bossId || isBossDefeated(bossId)) return;
+      const arena = getBossChunk(bossId);
+      if (arena?.boss) {
+        arena.boss = null;
+      }
+      if (boss?.id === bossId) boss = null;
+      setBossState(bossId, "idle");
+      bossActive = false;
+      bossArenaLocked = false;
+      if (bossBar) bossBar.classList.add("hidden");
     };
 
     const updateBossBar = () => {
@@ -3922,9 +3989,14 @@ import {
     };
 
     const syncBossArenaState = () => {
-      const bossChunks = chunks.filter((chunk) => chunk.boss);
+      const bossChunks = chunks.filter((chunk) => chunk.bossSpawn);
       bossChunks.forEach((arena) => {
+        if (!arena.boss && isBossDefeated(arena.bossSpawn.bossId)){
+          arena.boss = makeBoss(arena.bossSpawn.x, arena.bossSpawn.y, arena.bossSpawn.bossId);
+        }
+        if (!arena.boss) return;
         if (isBossDefeated(arena.boss.id)){
+          setBossState(arena.boss.id, "defeated");
           arena.boss.hp = 0;
           arena.boss.state = "dead";
           arena.bonfires?.forEach((b) => { b.locked = false; });
@@ -3973,14 +4045,18 @@ import {
         updateReachQuests(zone.id);
       }
       if (zone?.isBoss && zone.bossId) {
-        if (isBossDefeated(zone.bossId)) {
+        const bossState = getBossState(zone.bossId);
+        if (bossState === "idle" || bossState === "despawned") {
+          spawnBossEncounter(zone.bossId);
+        } else if (bossState === "active") {
+          spawnBossEncounter(zone.bossId);
+        } else if (bossState === "defeated") {
           bossActive = false;
           bossArenaLocked = false;
-        } else {
-          startBossEncounter(zone.bossId);
+          if (bossBar) bossBar.classList.add("hidden");
         }
-      } else if (bossActive) {
-        cancelBossEncounter(currentBossId);
+      } else if (bossActive && currentBossId) {
+        despawnBossEncounter(currentBossId);
       }
       if (zone && !visitedZones.has(zone.id)) {
         visitedZones.add(zone.id);
@@ -4027,6 +4103,11 @@ import {
   
     // ===== Camera =====
     const cam = {x:0, y:0, shakeTime: 0, shakeMag: 0};
+    // Parâmetros de câmera (ajuste aqui para suavidade e dead zone).
+    const CAMERA_LERP = 0.12;
+    const CAMERA_DEADZONE = { w: 360, h: 200 };
+    // Tempo de atravessar plataformas (drop-through).
+    const DROP_THROUGH_TIME = 0.2;
     const deathFade = {t: 0, duration: 0.9};
     let hitStopTimer = 0;
     let gateToastCooldown = 0;
@@ -4114,10 +4195,26 @@ import {
     };
   
     function centerCamera(){
-      const targetX = player.x + player.w/2 - VIEW_W/2;
-      const targetY = player.y + player.h/2 - VIEW_H/2;
-      cam.x = clamp(lerp(cam.x, targetX, 0.10), 0, Math.max(0, level.w - VIEW_W));
-      cam.y = clamp(lerp(cam.y, targetY, 0.10), 0, Math.max(0, level.h - VIEW_H));
+      const centerX = player.x + player.w / 2;
+      const centerY = player.y + player.h / 2;
+      const deadLeft = cam.x + (VIEW_W - CAMERA_DEADZONE.w) / 2;
+      const deadRight = cam.x + (VIEW_W + CAMERA_DEADZONE.w) / 2;
+      const deadTop = cam.y + (VIEW_H - CAMERA_DEADZONE.h) / 2;
+      const deadBottom = cam.y + (VIEW_H + CAMERA_DEADZONE.h) / 2;
+      let targetX = cam.x;
+      let targetY = cam.y;
+      if (centerX < deadLeft) {
+        targetX = centerX - (VIEW_W - CAMERA_DEADZONE.w) / 2;
+      } else if (centerX > deadRight) {
+        targetX = centerX - (VIEW_W + CAMERA_DEADZONE.w) / 2;
+      }
+      if (centerY < deadTop) {
+        targetY = centerY - (VIEW_H - CAMERA_DEADZONE.h) / 2;
+      } else if (centerY > deadBottom) {
+        targetY = centerY - (VIEW_H + CAMERA_DEADZONE.h) / 2;
+      }
+      cam.x = clamp(lerp(cam.x, targetX, CAMERA_LERP), 0, Math.max(0, level.w - VIEW_W));
+      cam.y = clamp(lerp(cam.y, targetY, CAMERA_LERP), 0, Math.max(0, level.h - VIEW_H));
     }
   
     // ===== Physics / Collision =====
@@ -4161,6 +4258,7 @@ import {
       ent.x += ent.vx * dt;
       let hitX = false;
       for (const s of level.solids){
+        if (s.oneWay) continue;
         if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
           if (ent === player && s.gate && gateToastCooldown <= 0){
             const needsSprint = s.type === "sprint" && !canPassGate(s, ent);
@@ -4182,10 +4280,21 @@ import {
       }
   
       // Vertical
+      const prevY = ent.y;
       ent.y += ent.vy * dt;
       ent.onGround = false;
       for (const s of level.solids){
-        if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
+        if (s.oneWay){
+          if (ent.vy < 0) continue;
+          if (ent === player && player.dropThroughTimer > 0) continue;
+          const wasAbove = prevY + ent.h <= s.y + 2;
+          if (!wasAbove) continue;
+          if (!rectsOverlap(ent, s)) continue;
+        } else if (!shouldCollideWithSolid(s, ent) || !rectsOverlap(ent, s)){
+          continue;
+        }
+        if (s.gate && !shouldCollideWithSolid(s, ent)) continue;
+        if (rectsOverlap(ent, s)){
           if (ent === player && s.gate && gateToastCooldown <= 0){
             const needsSprint = s.type === "sprint" && !canPassGate(s, ent);
             const needsAbyss = s.type === "abyss" && !canPassGate(s, ent);
@@ -4504,6 +4613,21 @@ import {
       player.st = player.stMax;
       player.estus = player.estusMax;
       resetAllChunksEnemies();
+      const resetBossIntent = (keys.has("s") || keys.has("arrowdown"))
+        && currentZone?.isBoss
+        && currentZone.bossId
+        && isBossDefeated(currentZone.bossId);
+      if (resetBossIntent) {
+        const bossId = currentZone.bossId;
+        setBossDefeated(bossId, false);
+        setBossState(bossId, "idle");
+        const arena = getBossChunk(bossId);
+        if (arena?.boss) arena.boss = null;
+        if (boss?.id === bossId) boss = null;
+        bossActive = false;
+        bossArenaLocked = false;
+        toast("Chefe resetado na fogueira.");
+      }
 
       toast(`Descansou em ${b.id}.`);
       await requestSave("bonfire");
@@ -4538,11 +4662,7 @@ import {
   
       // reset enemies to spawn
       resetAllChunksEnemies();
-      if (!isBossDefeated(currentBossId)){
-        resetBoss(currentBossId);
-      }
-      bossActive = false;
-      bossArenaLocked = false;
+      resetBossEncounter(currentBossId);
     }
   
     function tryPickupDeathDrop(){
@@ -4871,12 +4991,13 @@ import {
         boss.hp = 0;
         boss.state = "dead";
         setBossDefeated(boss.id, true);
+        setBossState(boss.id, "defeated");
         bossDefeatFlash.t = bossDefeatFlash.duration;
         bossActive = false;
         bossArenaLocked = false;
         triggerShake(6, 12, 0.3);
         playBossDefeatSfx();
-        const arena = chunks.find((chunk) => chunk.id === "boss_arena");
+        const arena = getBossChunk(boss.id) || chunks.find((chunk) => chunk.id === "boss_arena");
         arena?.bonfires?.forEach((b) => { b.locked = false; });
         const rewardGold = boss.goldReward || 300;
         gameState.gold += rewardGold;
@@ -5089,6 +5210,34 @@ import {
 
       moveAndCollide(boss, dt);
     }
+
+    const updateMovingPlatforms = (dt) => {
+      for (const platform of movingPlatforms){
+        const prevY = platform.y;
+        platform.y += platform.speed * platform.dir * dt;
+        if (platform.y < platform.minY) {
+          platform.y = platform.minY;
+          platform.dir = 1;
+        } else if (platform.y > platform.maxY) {
+          platform.y = platform.maxY;
+          platform.dir = -1;
+        }
+        platform.dy = platform.y - prevY;
+      }
+    };
+
+    const rideMovingPlatforms = (ent) => {
+      for (const platform of movingPlatforms){
+        if (!platform.dy) continue;
+        const foot = ent.y + ent.h;
+        const onTop = Math.abs(foot - platform.y) <= 2;
+        const withinX = ent.x + ent.w > platform.x && ent.x < platform.x + platform.w;
+        if (onTop && withinX){
+          ent.y += platform.dy;
+          ent.onGround = true;
+        }
+      }
+    };
   
     // ===== Update Loop =====
     let last = now();
@@ -5130,9 +5279,10 @@ import {
       bossActive = false;
       bossArenaLocked = false;
       currentBossId = PRIMARY_BOSS_ID;
-      if (!isBossDefeated(currentBossId)){
-        resetBoss(currentBossId);
-      }
+      bossLifecycle.stateById = {};
+      bossLifecycle.instanceById = {};
+      bossLifecycle.instanceCounter = 0;
+      resetBossEncounter(currentBossId);
       player.x = ZONE_X.ruins + 180;
       player.y = 740 - YSHIFT;
       player.checkpoint = { id: "Ruínas", x: player.x, y: player.y, zoneId: "ruins" };
@@ -5143,6 +5293,11 @@ import {
       cam.x = 0; cam.shakeTime = 0; cam.shakeMag = 0;
       hitStopTimer = 0;
       hitParticles.length = 0;
+      movingPlatforms.forEach((platform) => {
+        platform.y = platform.startY;
+        platform.dir = platform.startDir;
+        platform.dy = 0;
+      });
       renderHUD(true);
       toast("Reiniciado.");
     }
@@ -5175,6 +5330,7 @@ import {
       player.parryCD = Math.max(0, player.parryCD - dt);
       player.dashT = Math.max(0, player.dashT - dt);
       player.drinkTimer = Math.max(0, player.drinkTimer - dt);
+      player.dropThroughTimer = Math.max(0, player.dropThroughTimer - dt);
       deathFade.t = Math.max(0, deathFade.t - dt);
       bossDefeatFlash.t = Math.max(0, bossDefeatFlash.t - dt);
       gateToastCooldown = Math.max(0, gateToastCooldown - dt);
@@ -5253,6 +5409,15 @@ import {
 
       if (jumpPressed) player.jumpBufferTimer = PLAYER_MOVE.jumpBufferTime;
       player.jumpBufferTimer = Math.max(0, player.jumpBufferTimer - dt);
+      const downHeld = keys.has("s") || keys.has("arrowdown");
+
+      // Drop-through: segure para baixo + jump.
+      if (downHeld && jumpPressed && player.onGround){
+        player.dropThroughTimer = DROP_THROUGH_TIME;
+        player.onGround = false;
+        player.jumpBufferTimer = 0;
+        player.vy = Math.max(player.vy, 80);
+      }
 
       if (player.rollT <= 0 && player.hurtT <= 0 && player.dashT <= 0){
         if (left) { player.vx -= accel * dt; player.face = -1; }
@@ -5344,7 +5509,9 @@ import {
       }
   
       // Move & collide
+      updateMovingPlatforms(dt);
       moveAndCollide(player, dt);
+      rideMovingPlatforms(player);
 
       if (worldSpikes.length){
         const pbox = { x: player.x, y: player.y, w: player.w, h: player.h };
