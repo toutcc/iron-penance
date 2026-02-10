@@ -140,6 +140,7 @@ import {
   let pauseSaveLocked = false;
   let fpsLimit = 60;
   let showFps = true;
+  let debugBounds = false;
   let volume = 70;
   let pixelScale = 1;
   let lastFrameTime = 0;
@@ -181,11 +182,11 @@ import {
     },
     {
       id: "q_gallery",
-      title: "Eco da galeria",
-      desc: "Alcance a Galeria Quebrada e retorne viva.",
+      title: "Eco nos jardins",
+      desc: "Alcance os Jardins Cinzentos e retorne viva.",
       type: "reach",
       target: 1,
-      targetId: "gallery",
+      targetId: "gardens",
       rewardGold: 100
     }
   ];
@@ -1100,7 +1101,9 @@ import {
         doorFlags: { ...doorFlags },
         towerBossDefeated: isBossDefeated("warden"),
         pickupsCollected: [...collectedPickups],
-        miniBossesDefeated: [...defeatedMiniBosses]
+        miniBossesDefeated: [...defeatedMiniBosses],
+        openedChests: [...openedChests],
+        uniqueLootFound: [...uniqueLootFound]
       },
     playtimeSeconds,
     updatedAt: new Date().toISOString()
@@ -1232,7 +1235,8 @@ import {
       player.abilities = {
         dash: Boolean(data.abilities.dash),
         wallJump: Boolean(data.abilities.wallJump),
-        pogo: Boolean(data.abilities.pogo)
+        pogo: Boolean(data.abilities.pogo),
+        doubleJump: Boolean(data.abilities.doubleJump)
       };
     }
     if (Array.isArray(data.visitedZones)) {
@@ -1272,6 +1276,14 @@ import {
         defeatedMiniBosses.clear();
         data.flags.miniBossesDefeated.forEach((id) => defeatedMiniBosses.add(id));
         saveMiniBosses(defeatedMiniBosses);
+      }
+      if (Array.isArray(data.flags.openedChests)) {
+        openedChests.clear();
+        data.flags.openedChests.forEach((id) => openedChests.add(id));
+      }
+      if (Array.isArray(data.flags.uniqueLootFound)) {
+        uniqueLootFound.clear();
+        data.flags.uniqueLootFound.forEach((id) => uniqueLootFound.add(id));
       }
     }
     if (Array.isArray(data.inventorySlots)) {
@@ -2108,6 +2120,8 @@ import {
 
   const collectedPickups = loadCollectedPickups();
   const defeatedMiniBosses = loadMiniBosses();
+  const openedChests = new Set();
+  const uniqueLootFound = new Set();
   
     // ===== Utils =====
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -2148,6 +2162,36 @@ import {
         description: "Cortes brutais que quebram a guarda.",
         stats: { damage: 36, staminaCost: 34, reach: 46, attackSpeed: 0.82, weight: 40 }
       },
+      wpn_rust_sword: {
+        id: "wpn_rust_sword",
+        name: "Lâmina Enferrujada",
+        type: "weapon",
+        rarity: "common",
+        icon: "✶",
+        canParry: true,
+        description: "Uma espada antiga, gasta pelo tempo.",
+        stats: { damage: 18, staminaCost: 18, reach: 30, attackSpeed: 1.2, weight: 16 }
+      },
+      wpn_iron_blade: {
+        id: "wpn_iron_blade",
+        name: "Espada de Ferro",
+        type: "weapon",
+        rarity: "uncommon",
+        icon: "✷",
+        canParry: true,
+        description: "Lâmina firme, popular entre guardiões.",
+        stats: { damage: 30, staminaCost: 24, reach: 38, attackSpeed: 1.02, weight: 26 }
+      },
+      wpn_garden_sabre: {
+        id: "wpn_garden_sabre",
+        name: "Sabre dos Jardins",
+        type: "weapon",
+        rarity: "rare",
+        icon: "✸",
+        canParry: true,
+        description: "Cortes leves que dançam no ar.",
+        stats: { damage: 32, staminaCost: 22, reach: 42, attackSpeed: 1.1, weight: 22 }
+      },
       armor_cloth: {
         id: "armor_cloth",
         name: "Armadura de Pano",
@@ -2174,6 +2218,24 @@ import {
         icon: "⬣",
         description: "Aço penitente que reduz a mobilidade.",
         stats: { defense: 15, weight: 38, poiseBonus: 14 }
+      },
+      armor_ruins: {
+        id: "armor_ruins",
+        name: "Cota das Ruínas",
+        type: "armor",
+        rarity: "uncommon",
+        icon: "⬢",
+        description: "Couro reforçado pelas cinzas do começo.",
+        stats: { defense: 7, weight: 18, poiseBonus: 6 }
+      },
+      armor_tower_guard: {
+        id: "armor_tower_guard",
+        name: "Armadura do Vigia",
+        type: "armor",
+        rarity: "rare",
+        icon: "⬣",
+        description: "Placas pesadas que resistem ao vento da torre.",
+        stats: { defense: 14, weight: 34, poiseBonus: 12 }
       },
       relic_ember: {
         id: "relic_ember",
@@ -2211,6 +2273,24 @@ import {
         description: "Uma chama que revela caminhos secretos e acalma a exaustão.",
         stats: { effects: [{ type: "staminaRegen", value: 8, label: "+8 regen stamina" }] }
       },
+      trinket_vigil_charm: {
+        id: "trinket_vigil_charm",
+        name: "Amuleto da Vigília",
+        type: "relic",
+        rarity: "legendary",
+        icon: "✥",
+        description: "Protege o portador com a visão do alto.",
+        stats: { effects: [{ type: "staminaRegen", value: 12, label: "+12 regen stamina" }, { type: "estusMax", value: 1, label: "+1 Estus" }] }
+      },
+      relic_grey_bloom: {
+        id: "relic_grey_bloom",
+        name: "Flor Cinzenta",
+        type: "relic",
+        rarity: "epic",
+        icon: "✺",
+        description: "Uma flor que acelera o fôlego nas alturas.",
+        stats: { effects: [{ type: "staminaRegen", value: 7, label: "+7 regen stamina" }] }
+      },
       key_umbra_seal: {
         id: "key_umbra_seal",
         name: "Selo Umbrático",
@@ -2229,6 +2309,42 @@ import {
         stackable: true,
         description: "Fragmentos frios com cheiro de ferrugem."
       },
+      mat_rust: {
+        id: "mat_rust",
+        name: "Pó de Ferrugem",
+        type: "material",
+        rarity: "common",
+        icon: "◈",
+        stackable: true,
+        description: "Resíduos corroídos das ruínas."
+      },
+      mat_iron: {
+        id: "mat_iron",
+        name: "Liga de Ferro",
+        type: "material",
+        rarity: "uncommon",
+        icon: "◈",
+        stackable: true,
+        description: "Material firme coletado na torre."
+      },
+      cons_heal_leaf: {
+        id: "cons_heal_leaf",
+        name: "Folha Curativa",
+        type: "consumable",
+        rarity: "common",
+        icon: "✚",
+        stackable: true,
+        description: "Usada para remédios simples."
+      },
+      cons_stamina_tonic: {
+        id: "cons_stamina_tonic",
+        name: "Tônico de Vigor",
+        type: "consumable",
+        rarity: "uncommon",
+        icon: "✚",
+        stackable: true,
+        description: "Revigora o corpo antes de combates."
+      },
       material_ashen_core: {
         id: "material_ashen_core",
         name: "Núcleo Cinerário",
@@ -2238,6 +2354,51 @@ import {
         stackable: true,
         description: "Resquício da arena do penitente."
       }
+    };
+
+    const LOOT_TABLES = {
+      ruins: [
+        { id: "gold_small", w: 40, min: 5, max: 15 },
+        { id: "mat_rust", w: 25, min: 1, max: 2 },
+        { id: "cons_heal_leaf", w: 20, min: 1, max: 1 },
+        { id: "wpn_rust_sword", w: 5, min: 1, max: 1 },
+        { id: "armor_ruins", w: 10, min: 1, max: 1 }
+      ],
+      sanctuary: [
+        { id: "gold_small", w: 35, min: 10, max: 20 },
+        { id: "cons_heal_leaf", w: 25, min: 1, max: 2 },
+        { id: "material_iron_shard", w: 20, min: 1, max: 2 },
+        { id: "weapon_long_sword", w: 8, min: 1, max: 1 },
+        { id: "armor_mail", w: 12, min: 1, max: 1 }
+      ],
+      tower: [
+        { id: "gold_small", w: 25, min: 10, max: 30 },
+        { id: "mat_iron", w: 25, min: 1, max: 3 },
+        { id: "cons_stamina_tonic", w: 20, min: 1, max: 1 },
+        { id: "wpn_iron_blade", w: 8, min: 1, max: 1 },
+        { id: "trinket_vigil_charm", w: 2, min: 1, max: 1, unique: true }
+      ],
+      aqueduct: [
+        { id: "gold_small", w: 30, min: 12, max: 28 },
+        { id: "material_iron_shard", w: 25, min: 1, max: 2 },
+        { id: "cons_stamina_tonic", w: 20, min: 1, max: 1 },
+        { id: "weapon_long_sword", w: 6, min: 1, max: 1 },
+        { id: "armor_ruins", w: 10, min: 1, max: 1 }
+      ],
+      catacombs: [
+        { id: "gold_small", w: 28, min: 15, max: 35 },
+        { id: "mat_iron", w: 22, min: 1, max: 3 },
+        { id: "cons_stamina_tonic", w: 20, min: 1, max: 2 },
+        { id: "armor_plate", w: 6, min: 1, max: 1 },
+        { id: "relic_ember", w: 4, min: 1, max: 1, unique: true }
+      ],
+      gardens: [
+        { id: "gold_small", w: 30, min: 12, max: 30 },
+        { id: "cons_heal_leaf", w: 22, min: 1, max: 2 },
+        { id: "material_iron_shard", w: 20, min: 1, max: 2 },
+        { id: "wpn_garden_sabre", w: 6, min: 1, max: 1 },
+        { id: "relic_grey_bloom", w: 3, min: 1, max: 1, unique: true }
+      ]
     };
 
     const EQUIP_LOAD = {
@@ -2256,19 +2417,19 @@ import {
       return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
     }
 
+    function rectsIntersect(a, b){
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
     function getWallContact(ent){
       const inset = 2;
       const probeLeft = { x: ent.x - inset, y: ent.y + 2, w: inset, h: ent.h - 4 };
       const probeRight = { x: ent.x + ent.w, y: ent.y + 2, w: inset, h: ent.h - 4 };
       let left = false;
       let right = false;
-      for (const s of level.solids){
+      for (const s of collisionSolids){
         if (s.oneWay) continue;
-        if (s.gate){
-          if (s.type === "dash" && ent === player && player.abilities.dash && player.dashT > 0) continue;
-          if (s.type === "door" && doorFlags[s.id]) continue;
-          if (s.type === "boss" && !bossArenaLocked) continue;
-        }
+        if (s.gate && !shouldCollideWithSolid(s, ent)) continue;
         if (!left && rectsOverlap(probeLeft, s)) left = true;
         if (!right && rectsOverlap(probeRight, s)) right = true;
         if (left && right) break;
@@ -2299,6 +2460,11 @@ import {
         if (key === "escape") {
           e.preventDefault();
           setState("pause");
+          return;
+        }
+        if (key === "f3") {
+          debugBounds = !debugBounds;
+          toast(`Debug bounds: ${debugBounds ? "ON" : "OFF"}`);
           return;
         }
         keys.add(key);
@@ -2515,7 +2681,7 @@ import {
     function makePlayer(){
       const baseEstusMax = bossRewardClaimed[PRIMARY_BOSS_ID] ? 4 : 3;
       return {
-        x: 120, y: 740 - YSHIFT,
+        x: ruinsBounds.x + 120, y: ruinsBounds.y + 480,
         w: 26, h: 44,
         vx: 0, vy: 0,
         face: 1, // 1 right, -1 left
@@ -2561,12 +2727,13 @@ import {
         abilities: {
           dash: false,
           wallJump: false,
-          pogo: false
+          pogo: false,
+          doubleJump: false
         },
   
         souls: 0,
         deathDrop: null, // {x,y,amount,active}
-        checkpoint: {id:"Ruínas", x: 2580, y: 740 - YSHIFT, zoneId: "ruins"},
+        checkpoint: {id:"Ruínas", x: ruinsBounds.x + 120, y: ruinsBounds.y + 480, zoneId: "ruins"},
       };
     }
   
@@ -2601,6 +2768,55 @@ import {
           chargeDuration: 0.35,
           chargeCooldown: 1.8
         };
+      } else if (kind === "runner") {
+        base = {
+          hpMax: 90,
+          dmg: 16,
+          speed: 220,
+          aggro: 520,
+          windup: 0.18,
+          cooldown: 0.55,
+          poiseMax: 50,
+          chargeSpeed: 520,
+          chargeDuration: 0.28,
+          chargeCooldown: 1.2
+        };
+      } else if (kind === "archer") {
+        base = {
+          hpMax: 80,
+          dmg: 18,
+          speed: 120,
+          aggro: 620,
+          windup: 0.35,
+          cooldown: 1.0,
+          poiseMax: 45,
+          rangedCooldown: 1.6,
+          rangedRange: 520
+        };
+      } else if (kind === "hopper") {
+        base = {
+          hpMax: 100,
+          dmg: 20,
+          speed: 150,
+          aggro: 520,
+          windup: 0.2,
+          cooldown: 0.6,
+          poiseMax: 60,
+          leapPower: 820,
+          leapRangeMin: 100,
+          leapRangeMax: 320,
+          leapCooldown: 1.1
+        };
+      } else if (kind === "heavy") {
+        base = {
+          hpMax: 220,
+          dmg: 32,
+          speed: 90,
+          aggro: 480,
+          windup: 0.35,
+          cooldown: 0.9,
+          poiseMax: 130
+        };
       } else {
         base = {hpMax: 90, dmg: 14, speed: 120, aggro: 420, windup: 0.25, cooldown: 0.70, poiseMax: 60};
       }
@@ -2620,6 +2836,7 @@ import {
         attackCD: 0,
         leapCD: 0,
         chargeCD: 0,
+        rangedCD: 0,
         attackHit: false,
         missRecover: 0.22,
   
@@ -2650,6 +2867,15 @@ import {
         phaseThresholds: [0.68, 0.34],
         goldReward: 320,
         uniqueReward: { type: "relic", itemId: "relic_warden_lantern" }
+      },
+      harvester: {
+        id: "harvester",
+        name: "O Ceifador das Cinzas",
+        hpMax: 1350,
+        poiseMax: 240,
+        phaseThresholds: [0.7, 0.35],
+        goldReward: 420,
+        uniqueReward: { type: "relic", itemId: "relic_grey_bloom" }
       }
     };
 
@@ -2688,64 +2914,334 @@ import {
       };
     }
 
-    const miniBossKnight = makeEnemy(1480, 740, "knight");
+
+    const WORLD = { w: 12000, h: 6000 };
+    const WORLD_BOUNDS = { x: 0, y: 0, w: WORLD.w, h: WORLD.h };
+    const CHUNK_W = 600;
+    const CHUNK_H = 600;
+    const LAYERS = { upper: 1200, mid: 3000, lower: 4200 };
+
+    const ruinsBounds = { x: 0, y: LAYERS.mid, w: 2400, h: 1200 };
+    const sanctuaryBounds = { x: 2400, y: LAYERS.mid, w: 2400, h: 1200 };
+    const aqueductBounds = { x: 4800, y: LAYERS.mid, w: 2400, h: 1200 };
+    const gardensBounds = { x: 4800, y: LAYERS.upper, w: 2400, h: 1200 };
+    const catacombsBounds = { x: 3000, y: LAYERS.lower, w: 2400, h: 1200 };
+    const towerBounds = { x: 7800, y: 1200, w: 1200, h: 3000 };
+    const penitentBossBounds = { x: sanctuaryBounds.x + 1000, y: sanctuaryBounds.y + 200, w: 600, h: 600 };
+    const catacombsBossBounds = { x: catacombsBounds.x + 1600, y: catacombsBounds.y + 200, w: 600, h: 600 };
+
+    // Zonas (metroidvania) com bounds.
+    const zones = [
+      { id: "ruins", name: "Ruínas Iniciais", bounds: ruinsBounds, rect: ruinsBounds, theme: "ruins", discovered: false, biomeTint: "rgba(120,110,90,.2)", musicTag: "ruins" },
+      { id: "sanctuary", name: "Santuário do Penitente", bounds: sanctuaryBounds, rect: sanctuaryBounds, theme: "sanctuary", discovered: false, biomeTint: "rgba(140,130,110,.2)", musicTag: "sanctuary" },
+      { id: "aqueduct", name: "Aqueduto Partido", bounds: aqueductBounds, rect: aqueductBounds, theme: "aqueduct", discovered: false, biomeTint: "rgba(110,130,150,.2)", musicTag: "aqueduct" },
+      { id: "tower", name: "Torre do Vigia", bounds: towerBounds, rect: towerBounds, theme: "tower", discovered: false, biomeTint: "rgba(150,130,110,.2)", musicTag: "tower" },
+      { id: "catacombs", name: "Catacumbas", bounds: catacombsBounds, rect: catacombsBounds, theme: "catacombs", discovered: false, biomeTint: "rgba(110,100,120,.2)", musicTag: "catacombs" },
+      { id: "gardens", name: "Jardins Cinzentos", bounds: gardensBounds, rect: gardensBounds, theme: "gardens", discovered: false, biomeTint: "rgba(120,150,130,.2)", musicTag: "gardens" },
+      { id: "penitent_crypt", name: "Cripta do Penitente", bounds: penitentBossBounds, rect: penitentBossBounds, theme: "sanctuary", discovered: false, biomeTint: "rgba(150,120,100,.2)", musicTag: "boss", isBoss: true, bossId: PRIMARY_BOSS_ID },
+      { id: "catacombs_boss", name: "Sepulcro das Cinzas", bounds: catacombsBossBounds, rect: catacombsBossBounds, theme: "catacombs", discovered: false, biomeTint: "rgba(120,90,110,.2)", musicTag: "boss", isBoss: true, bossId: "harvester" }
+    ];
+    const zoneMap = new Map(zones.map((zone) => [zone.id, zone]));
+    const TOWER_BOSS_ID = "warden";
+    const towerBossArena = { x: towerBounds.x + 200, y: towerBounds.y + 60, w: 800, h: 520 };
+    const towerBossTrigger = { x: towerBounds.x + 320, y: towerBounds.y + 600, w: 520, h: 240 };
+
+    const miniBossKnight = makeEnemy(sanctuaryBounds.x + 1400, sanctuaryBounds.y + 480, "knight");
     miniBossKnight.id = "mini_boss_knight";
     miniBossKnight.isMiniBoss = true;
     miniBossKnight.dropItem = { type: "weapon", itemId: "weapon_great_sword" };
 
-    const miniBossCharger = makeEnemy(980, 1040 - YSHIFT, "charger");
+    const miniBossCharger = makeEnemy(catacombsBounds.x + 900, catacombsBounds.y + 520, "charger");
     miniBossCharger.id = "mini_boss_charger";
     miniBossCharger.isMiniBoss = true;
     miniBossCharger.dropItem = { type: "material", itemId: "key_umbra_seal" };
 
-    const WORLD = { w: 16800, h: 1400 };
-    const ZONE_X = {
-      gallery: 0,
-      ruins: 2400,
-      antechamber: 4600,
-      boss: 6200,
-      foundry: 8200,
-      tower: 10400,
-      undercroft: 10400,
-      abyss: 12400,
-      vault: 15000
-    };
-    const ZONE_W = {
-      gallery: 2400,
-      ruins: 2200,
-      antechamber: 1600,
-      boss: 2000,
-      foundry: 2200,
-      tower: 2000,
-      undercroft: 2000,
-      vault: 1800,
-      abyss: 2600
+    const miniBossArcher = makeEnemy(gardensBounds.x + 1200, gardensBounds.y + 480, "archer");
+    miniBossArcher.id = "mini_boss_archer";
+    miniBossArcher.isMiniBoss = true;
+    miniBossArcher.dropItem = { type: "weapon", itemId: "wpn_garden_sabre" };
+
+    const miniBossHeavy = makeEnemy(aqueductBounds.x + 1800, aqueductBounds.y + 480, "heavy");
+    miniBossHeavy.id = "mini_boss_heavy";
+    miniBossHeavy.isMiniBoss = true;
+    miniBossHeavy.dropItem = { type: "armor", itemId: "armor_tower_guard" };
+
+    const towerPlatforms = [];
+    const towerWalls = [];
+
+    const makeGate = (gate) => ({ ...gate, gate: true });
+    const makeFloor = (x, y, w = CHUNK_W) => ({ x, y, w, h: 80 });
+    const makePlatform = (x, y, w, oneWay = true) => ({ x, y, w, h: 20, oneWay });
+
+    const buildRuinsChunk = (x, y, id, variant = "default") => {
+      const floorY = y + 520;
+      const solids = [
+        makeFloor(x, floorY),
+        makePlatform(x + 80, floorY - 140, 180),
+        makePlatform(x + 320, floorY - 220, 200)
+      ];
+      if (variant === "loop") {
+        solids.push(makePlatform(x + 120, floorY - 280, 160));
+      }
+      if (variant === "shaft") {
+        solids.push({ x: x + 40, y: y + 80, w: 20, h: 420 });
+        solids.push({ x: x + CHUNK_W - 60, y: y + 120, w: 20, h: 420 });
+      }
+      return {
+        id,
+        zoneId: "ruins",
+        rect: { x, y, w: CHUNK_W, h: CHUNK_H },
+        solids,
+        enemies: [
+          makeEnemy(x + 180, floorY - 40, "runner"),
+          makeEnemy(x + 380, floorY - 40, "hollow")
+        ]
+      };
     };
 
-    // Zonas (metroidvania) com world rects.
-    const zones = [
-      { id: "gallery", name: "Galeria Quebrada", rect: { x: ZONE_X.gallery, y: 0, w: ZONE_W.gallery, h: WORLD.h } },
-      { id: "ruins", name: "Ruínas", rect: { x: ZONE_X.ruins, y: 0, w: ZONE_W.ruins, h: WORLD.h } },
-      { id: "antechamber", name: "Ante-câmara", rect: { x: ZONE_X.antechamber, y: 0, w: ZONE_W.antechamber, h: WORLD.h } },
-      { id: "boss", name: "Santuário do Penitente", rect: { x: ZONE_X.boss, y: 0, w: ZONE_W.boss, h: WORLD.h }, isBoss: true, bossId: PRIMARY_BOSS_ID },
-      { id: "foundry", name: "Forja Soterrada", rect: { x: ZONE_X.foundry, y: 0, w: ZONE_W.foundry, h: WORLD.h } },
+    const buildSanctuaryChunk = (x, y, id, variant = "default") => {
+      const floorY = y + 520;
+      const solids = [
+        makeFloor(x, floorY),
+        makePlatform(x + 120, floorY - 160, 200),
+        makePlatform(x + 360, floorY - 240, 180)
+      ];
+      if (variant === "hub") {
+        solids.push(makePlatform(x + 220, floorY - 320, 160));
+      }
+      return {
+        id,
+        zoneId: "sanctuary",
+        rect: { x, y, w: CHUNK_W, h: CHUNK_H },
+        solids,
+        enemies: [
+          makeEnemy(x + 280, floorY - 40, "knight")
+        ]
+      };
+    };
+
+    const buildAqueductChunk = (x, y, id, variant = "gaps") => {
+      const floorY = y + 520;
+      const solids = [];
+      if (variant === "gaps") {
+        solids.push(makeFloor(x, floorY, 220));
+        solids.push(makeFloor(x + 320, floorY, 220));
+      } else {
+        solids.push(makeFloor(x, floorY));
+      }
+      solids.push(makePlatform(x + 160, floorY - 160, 160));
+      solids.push(makePlatform(x + 360, floorY - 260, 160));
+      return {
+        id,
+        zoneId: "aqueduct",
+        rect: { x, y, w: CHUNK_W, h: CHUNK_H },
+        solids,
+        enemies: [
+          makeEnemy(x + 180, floorY - 40, "archer"),
+          makeEnemy(x + 420, floorY - 40, "runner")
+        ],
+        spawns: [
+          { id: `${id}_spawn_1`, kind: "runner", x: x + 120, y: floorY - 40, cooldown: 6, timer: randRange(0, 3), maxAlive: 2, alive: 0 }
+        ]
+      };
+    };
+
+    const buildGardensChunk = (x, y, id) => {
+      const floorY = y + 520;
+      const solids = [
+        makeFloor(x, floorY),
+        makePlatform(x + 80, floorY - 220, 160),
+        makePlatform(x + 320, floorY - 300, 180),
+        makePlatform(x + 180, floorY - 380, 160)
+      ];
+      return {
+        id,
+        zoneId: "gardens",
+        rect: { x, y, w: CHUNK_W, h: CHUNK_H },
+        solids,
+        enemies: [
+          makeEnemy(x + 240, floorY - 40, "hopper")
+        ],
+        spawns: [
+          { id: `${id}_spawn_1`, kind: "archer", x: x + 360, y: floorY - 40, cooldown: 8, timer: randRange(0, 4), maxAlive: 1, alive: 0 }
+        ]
+      };
+    };
+
+    const buildCatacombsChunk = (x, y, id, variant = "default") => {
+      const floorY = y + 520;
+      const solids = [
+        makeFloor(x, floorY),
+        makePlatform(x + 80, floorY - 140, 180),
+        makePlatform(x + 320, floorY - 220, 200)
+      ];
+      if (variant === "deep") {
+        solids.push(makePlatform(x + 140, floorY - 320, 140));
+      }
+      return {
+        id,
+        zoneId: "catacombs",
+        rect: { x, y, w: CHUNK_W, h: CHUNK_H },
+        solids,
+        enemies: [
+          makeEnemy(x + 240, floorY - 40, "heavy"),
+          makeEnemy(x + 420, floorY - 40, "archer")
+        ],
+        spawns: [
+          { id: `${id}_spawn_1`, kind: "hopper", x: x + 180, y: floorY - 40, cooldown: 7, timer: randRange(0, 4), maxAlive: 2, alive: 0 }
+        ]
+      };
+    };
+
+    const buildTowerChunk = (x, y, id, variant = "default") => {
+      const floorY = y + 520;
+      const platforms = [
+        makePlatform(x + 100, floorY - 120, 160),
+        makePlatform(x + 320, floorY - 220, 160),
+        makePlatform(x + 140, floorY - 320, 160)
+      ];
+      if (variant === "top") {
+        platforms.push(makePlatform(x + 240, floorY - 420, 180));
+      }
+      const walls = [
+        { x: x + 40, y: y + 80, w: 20, h: 460 },
+        { x: x + CHUNK_W - 60, y: y + 80, w: 20, h: 460 }
+      ];
+      towerPlatforms.push(...platforms);
+      towerWalls.push(...walls);
+      const chunk = {
+        id,
+        zoneId: "tower",
+        rect: { x, y, w: CHUNK_W, h: CHUNK_H },
+        solids: [
+          makeFloor(x, floorY),
+          ...platforms,
+          ...walls
+        ],
+        enemies: [
+          makeEnemy(x + 260, floorY - 40, "stalker"),
+          makeEnemy(x + 420, floorY - 40, "runner")
+        ]
+      };
+      if (variant === "top") {
+        chunk.gates = [
+          makeGate({ id: "tower_boss_left", type: "boss", x: x + 40, y: y + 240, w: 24, h: 220 }),
+          makeGate({ id: "tower_boss_right", type: "boss", x: x + CHUNK_W - 60, y: y + 240, w: 24, h: 220 })
+        ];
+        chunk.bossSpawn = { x: x + 260, y: floorY - 50, bossId: "warden" };
+        chunk.boss = null;
+      }
+      return chunk;
+    };
+
+    const buildConnectorChunk = (x, y, id, zoneId) => {
+      const floorY = y + 520;
+      const walls = [
+        { x: x + 40, y: y + 60, w: 20, h: 480 },
+        { x: x + CHUNK_W - 60, y: y + 60, w: 20, h: 480 }
+      ];
+      return {
+        id,
+        zoneId,
+        rect: { x, y, w: CHUNK_W, h: CHUNK_H },
+        solids: [
+          makeFloor(x, floorY),
+          makePlatform(x + 120, floorY - 140, 160),
+          makePlatform(x + 320, floorY - 260, 160),
+          ...walls
+        ]
+      };
+    };
+
+    const chunks = [
+      buildRuinsChunk(0, LAYERS.mid, "ruins_1", "loop"),
+      buildRuinsChunk(600, LAYERS.mid, "ruins_2", "shaft"),
+      buildRuinsChunk(1200, LAYERS.mid, "ruins_3"),
+      buildRuinsChunk(1800, LAYERS.mid, "ruins_4", "loop"),
+      buildRuinsChunk(0, LAYERS.mid + 600, "ruins_5"),
+      buildRuinsChunk(600, LAYERS.mid + 600, "ruins_6"),
+      buildRuinsChunk(1200, LAYERS.mid + 600, "ruins_7", "loop"),
+      buildRuinsChunk(1800, LAYERS.mid + 600, "ruins_8"),
+      buildSanctuaryChunk(2400, LAYERS.mid, "sanctuary_1", "hub"),
+      buildSanctuaryChunk(3000, LAYERS.mid, "sanctuary_2"),
+      buildSanctuaryChunk(3600, LAYERS.mid, "sanctuary_3"),
+      buildSanctuaryChunk(4200, LAYERS.mid, "sanctuary_4"),
+      buildSanctuaryChunk(2400, LAYERS.mid + 600, "sanctuary_5"),
+      buildSanctuaryChunk(3000, LAYERS.mid + 600, "sanctuary_6"),
+      buildSanctuaryChunk(3600, LAYERS.mid + 600, "sanctuary_7"),
+      buildSanctuaryChunk(4200, LAYERS.mid + 600, "sanctuary_8"),
+      buildAqueductChunk(4800, LAYERS.mid, "aqueduct_1", "gaps"),
+      buildAqueductChunk(5400, LAYERS.mid, "aqueduct_2", "gaps"),
+      buildAqueductChunk(6000, LAYERS.mid, "aqueduct_3", "solid"),
+      buildAqueductChunk(6600, LAYERS.mid, "aqueduct_4", "gaps"),
+      buildAqueductChunk(4800, LAYERS.mid + 600, "aqueduct_5", "solid"),
+      buildAqueductChunk(5400, LAYERS.mid + 600, "aqueduct_6", "gaps"),
+      buildAqueductChunk(6000, LAYERS.mid + 600, "aqueduct_7", "solid"),
+      buildAqueductChunk(6600, LAYERS.mid + 600, "aqueduct_8", "gaps"),
+      buildGardensChunk(4800, LAYERS.upper, "gardens_1"),
+      buildGardensChunk(5400, LAYERS.upper, "gardens_2"),
+      buildGardensChunk(6000, LAYERS.upper, "gardens_3"),
+      buildGardensChunk(6600, LAYERS.upper, "gardens_4"),
+      buildGardensChunk(4800, LAYERS.upper + 600, "gardens_5"),
+      buildGardensChunk(5400, LAYERS.upper + 600, "gardens_6"),
+      buildGardensChunk(6000, LAYERS.upper + 600, "gardens_7"),
+      buildGardensChunk(6600, LAYERS.upper + 600, "gardens_8"),
+      buildConnectorChunk(6600, LAYERS.upper + 600, "connector_sky_1", "gardens"),
+      buildConnectorChunk(6600, LAYERS.upper + 1200, "connector_sky_2", "aqueduct"),
+      buildConnectorChunk(3600, LAYERS.mid + 600, "connector_depth_1", "sanctuary"),
+      buildConnectorChunk(3600, LAYERS.lower, "connector_depth_2", "catacombs"),
+      buildCatacombsChunk(3000, LAYERS.lower, "catacombs_1", "deep"),
+      buildCatacombsChunk(3600, LAYERS.lower, "catacombs_2"),
+      buildCatacombsChunk(4200, LAYERS.lower, "catacombs_3", "deep"),
+      buildCatacombsChunk(4800, LAYERS.lower, "catacombs_4"),
+      buildCatacombsChunk(3000, LAYERS.lower + 600, "catacombs_5"),
+      buildCatacombsChunk(3600, LAYERS.lower + 600, "catacombs_6", "deep"),
+      buildCatacombsChunk(4200, LAYERS.lower + 600, "catacombs_7"),
+      buildCatacombsChunk(4800, LAYERS.lower + 600, "catacombs_8", "deep"),
+      buildTowerChunk(towerBounds.x, towerBounds.y, "tower_1", "top"),
+      buildTowerChunk(towerBounds.x, towerBounds.y + 600, "tower_2"),
+      buildTowerChunk(towerBounds.x, towerBounds.y + 1200, "tower_3"),
+      buildTowerChunk(towerBounds.x, towerBounds.y + 1800, "tower_4"),
+      buildTowerChunk(towerBounds.x, towerBounds.y + 2400, "tower_5"),
       {
-        id: "tower_boss",
-        name: "Cume da Torre",
-        rect: { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 600 },
-        isBoss: true,
-        bossId: "warden"
+        id: "penitent_arena",
+        zoneId: "penitent_crypt",
+        rect: { ...penitentBossBounds },
+        solids: [
+          makeFloor(penitentBossBounds.x, penitentBossBounds.y + 520, penitentBossBounds.w),
+          makePlatform(penitentBossBounds.x + 80, penitentBossBounds.y + 360, 160),
+          makePlatform(penitentBossBounds.x + 360, penitentBossBounds.y + 360, 160)
+        ],
+        bonfires: [
+          { id: "Cripta", x: penitentBossBounds.x + 60, y: penitentBossBounds.y + 482, w: 26, h: 38, spawnX: penitentBossBounds.x + 20, spawnY: penitentBossBounds.y + 480, locked: true }
+        ],
+        gates: [
+          makeGate({ id: "penitent_gate_left", type: "boss", x: penitentBossBounds.x, y: penitentBossBounds.y + 360, w: 20, h: 200 }),
+          makeGate({ id: "penitent_gate_right", type: "boss", x: penitentBossBounds.x + penitentBossBounds.w - 20, y: penitentBossBounds.y + 360, w: 20, h: 200 })
+        ],
+        bossSpawn: { x: penitentBossBounds.x + 360, y: penitentBossBounds.y + 470, bossId: PRIMARY_BOSS_ID },
+        boss: null
       },
-      { id: "tower", name: "Torre dos Ecos", rect: { x: ZONE_X.tower, y: 0, w: ZONE_W.tower, h: 600 } },
-      { id: "undercroft", name: "Cripta Submersa", rect: { x: ZONE_X.undercroft, y: 600, w: ZONE_W.undercroft, h: 800 } },
-      { id: "abyss", name: "Abismo Silencioso", rect: { x: ZONE_X.abyss, y: 0, w: ZONE_W.abyss, h: WORLD.h } },
-      { id: "vault", name: "Cofre Lacrado", rect: { x: ZONE_X.vault, y: 0, w: ZONE_W.vault, h: WORLD.h } }
+      {
+        id: "catacombs_boss_arena",
+        zoneId: "catacombs_boss",
+        rect: { ...catacombsBossBounds },
+        solids: [
+          makeFloor(catacombsBossBounds.x, catacombsBossBounds.y + 520, catacombsBossBounds.w),
+          makePlatform(catacombsBossBounds.x + 100, catacombsBossBounds.y + 360, 160),
+          makePlatform(catacombsBossBounds.x + 320, catacombsBossBounds.y + 360, 160)
+        ],
+        bonfires: [
+          { id: "Sepulcro", x: catacombsBossBounds.x + 60, y: catacombsBossBounds.y + 482, w: 26, h: 38, spawnX: catacombsBossBounds.x + 20, spawnY: catacombsBossBounds.y + 480, locked: true }
+        ],
+        gates: [
+          makeGate({ id: "harvester_gate_left", type: "boss", x: catacombsBossBounds.x, y: catacombsBossBounds.y + 360, w: 20, h: 200 }),
+          makeGate({ id: "harvester_gate_right", type: "boss", x: catacombsBossBounds.x + catacombsBossBounds.w - 20, y: catacombsBossBounds.y + 360, w: 20, h: 200 })
+        ],
+        bossSpawn: { x: catacombsBossBounds.x + 360, y: catacombsBossBounds.y + 470, bossId: "harvester" },
+        boss: null
+      }
     ];
-    const zoneMap = new Map(zones.map((zone) => [zone.id, zone]));
-    const TOWER_BOSS_ID = "warden";
-    const towerBossArena = { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 600 };
-    const towerBossTrigger = { x: ZONE_X.tower + 1500, y: 260, w: 340, h: 220 };
-
 
     const offsetList = (list, dx, dy = 0) => list.map((item) => ({ ...item, x: item.x + dx, y: item.y + dy }));
     const offsetEnemies = (list, dx, dy = 0) => list.map((enemy) => {
@@ -2753,439 +3249,120 @@ import {
       enemy.y += dy;
       return enemy;
     });
-    const makeGate = (gate) => ({ ...gate, gate: true });
 
-    const chunks = [
-      // GALERIA: entrada + loop superior (atalho de volta ao hub).
+    // Slots extras, pickups, gates e chests por zona.
+    const extraChunks = [
       {
-        id: "gallery_entry",
-        zoneId: "gallery",
-        rect: { x: ZONE_X.gallery, y: 0, w: 1400, h: WORLD.h },
-        solids: offsetList([
-          { x: 0, y: 780 - YSHIFT, w: 2200, h: 120 },
-          { x: 260, y: 660 - YSHIFT, w: 320, h: 24 },
-          { x: 720, y: 600 - YSHIFT, w: 280, h: 24 },
-          { x: 1100, y: 520 - YSHIFT, w: 260, h: 24 }
-        ], ZONE_X.gallery),
-        enemies: offsetEnemies([
-          makeEnemy(520, 740, "hollow"),
-          makeEnemy(980, 700 - YSHIFT, "hollow")
-        ], ZONE_X.gallery),
-        pickups: offsetList([
-          { id: "pickup_dash_core", type: "ability", abilityId: "dash", x: 760, y: 560 - YSHIFT }
-        ], ZONE_X.gallery)
-      },
-      {
-        id: "gallery_loop",
-        zoneId: "gallery",
-        rect: { x: ZONE_X.gallery + 1400, y: 0, w: 1000, h: WORLD.h },
-        solids: offsetList([
-          { x: 1500, y: 660 - YSHIFT, w: 280, h: 24 },
-          { x: 1800, y: 560 - YSHIFT, w: 240, h: 24 },
-          { x: 1700, y: 460 - YSHIFT, w: 200, h: 24 },
-          { x: 1880, y: 380 - YSHIFT, w: 200, h: 24 },
-          { x: 2100, y: 380 - YSHIFT, w: 260, h: 24 }
-        ], ZONE_X.gallery),
-        enemies: offsetEnemies([
-          miniBossKnight,
-          makeEnemy(1860, 520 - YSHIFT, "hollow")
-        ], ZONE_X.gallery),
-        gates: [
-          // Atalho persistente: abre pelo lado da galeria e retorna ao hub.
-          makeGate({ id: "hub_shortcut", type: "door", x: ZONE_X.ruins - 32, y: 380 - YSHIFT, w: 32, h: 120, openFrom: "left" })
+        id: "ruins_hub",
+        zoneId: "ruins",
+        rect: { x: ruinsBounds.x + 200, y: ruinsBounds.y + 200, w: 600, h: 600 },
+        solids: [
+          makeFloor(ruinsBounds.x + 200, ruinsBounds.y + 720)
+        ],
+        bonfires: [
+          { id: "Ruínas", x: ruinsBounds.x + 260, y: ruinsBounds.y + 482, w: 26, h: 38, spawnX: ruinsBounds.x + 220, spawnY: ruinsBounds.y + 480 }
+        ],
+        npcs: [
+          { id: "quest_giver", type: "quest", name: "A Santa da Ruína", x: ruinsBounds.x + 340, y: ruinsBounds.y + 450, w: 28, h: 46 },
+          { id: "trainer_mentor", type: "trainer", name: "Mentor das Ruínas", x: ruinsBounds.x + 420, y: ruinsBounds.y + 450, w: 28, h: 46 }
+        ],
+        chests: [
+          { id: "chest_ruins_hub", x: ruinsBounds.x + 120, y: ruinsBounds.y + 470, w: 40, h: 28, zoneKey: "ruins" }
         ]
       },
-      // RUÍNAS: HUB com duas saídas, loop e checkpoint.
       {
-        id: "ruins_core",
-        zoneId: "ruins",
-        rect: { x: ZONE_X.ruins, y: 0, w: 1600, h: WORLD.h },
-        solids: offsetList([
-          { x: 0, y: 780 - YSHIFT, w: 2000, h: 120 },
-          { x: 240, y: 640 - YSHIFT, w: 420, h: 24 },
-          { x: 820, y: 560 - YSHIFT, w: 340, h: 24 },
-          { x: 60, y: 380 - YSHIFT, w: 260, h: 24 },
-          { x: 680, y: 740, w: 80, h: 40 },
-          { x: 760, y: 720, w: 80, h: 60 },
-          { x: 840, y: 700, w: 80, h: 80 },
-          { x: 1180, y: 650, w: 40, h: 130 },
-          // Gargalo para a galeria (porta/corredor estreito).
-          { x: -20, y: 520 - YSHIFT, w: 20, h: 260 }
-        ], ZONE_X.ruins),
-        bonfires: offsetList([
-          { id: "Ruínas", x: 180, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 140, spawnY: 740 - YSHIFT }
-        ], ZONE_X.ruins),
-        enemies: offsetEnemies([
-          makeEnemy(520, 740, "hollow"),
-          makeEnemy(980, 520, "hollow")
-        ], ZONE_X.ruins),
-        pickups: offsetList([
-          { id: "pickup_long_sword", type: "weapon", itemId: "weapon_long_sword", x: 620, y: 700 - YSHIFT }
-        ], ZONE_X.ruins),
-        npcs: offsetList([
-          { id: "quest_giver", type: "quest", name: "A Santa da Ruína", x: 360, y: 712 - YSHIFT, w: 28, h: 46 },
-          { id: "trainer_mentor", type: "trainer", name: "Mentor das Ruínas", x: 520, y: 712 - YSHIFT, w: 28, h: 46 }
-        ], ZONE_X.ruins)
-      },
-      {
-        id: "ruins_upper",
-        zoneId: "ruins",
-        rect: { x: ZONE_X.ruins + 1600, y: 0, w: 600, h: WORLD.h },
-        solids: offsetList([
-          { x: 1600, y: 780 - YSHIFT, w: 600, h: 120 },
-          { x: 1260, y: 520 - YSHIFT, w: 200, h: 24 },
-          { x: 1480, y: 440 - YSHIFT, w: 200, h: 24 },
-          { x: 1680, y: 360 - YSHIFT, w: 200, h: 24 },
-          // Corredor estreito para a saída leste (gargalo).
-          { x: 1900, y: 700 - YSHIFT, w: 260, h: 20 }
-        ], ZONE_X.ruins),
-        gates: []
-      },
-      // ABISMO: poço profundo + seção vertical com wall jump.
-      {
-        id: "abyss_pit",
-        zoneId: "abyss",
-        rect: { x: ZONE_X.abyss, y: 0, w: 1500, h: WORLD.h },
-        solids: offsetList([
-          { x: 0, y: 780 - YSHIFT, w: 420, h: 120 },
-          { x: 520, y: 620 - YSHIFT, w: 260, h: 24 },
-          { x: 860, y: 540 - YSHIFT, w: 220, h: 24 },
-          { x: 1180, y: 460 - YSHIFT, w: 260, h: 24 }
-        ], ZONE_X.abyss),
-        enemies: offsetEnemies([
-          makeEnemy(540, 580 - YSHIFT, "hollow")
-        ], ZONE_X.abyss),
-        pickups: offsetList([
-          { id: "pickup_mail_armor", type: "armor", itemId: "armor_mail", x: 880, y: 500 - YSHIFT }
-        ], ZONE_X.abyss),
-        voidKill: true,
-        voidY: 980 - YSHIFT
-      },
-      {
-        id: "abyss_vertical",
-        zoneId: "abyss",
-        rect: { x: ZONE_X.abyss + 1500, y: 0, w: 1100, h: WORLD.h },
-        solids: offsetList([
-          { x: 1540, y: 540 - YSHIFT, w: 220, h: 24 },
-          { x: 1840, y: 620 - YSHIFT, w: 260, h: 24 },
-          { x: 2100, y: 780 - YSHIFT, w: 200, h: 120 }
-        ], ZONE_X.abyss),
-        gates: [
-          // Parede alta: exige WALL JUMP.
-          makeGate({ id: "wall_gate", type: "wall", x: ZONE_X.abyss + 1980, y: 380 - YSHIFT, w: 40, h: 280 }),
-          makeGate({
-            id: "vault_gate",
-            type: "key",
-            hint: "O selo do cofre permanece fechado.",
-            requiredItemId: "key_umbra_seal",
-            x: ZONE_X.vault - 48,
-            y: 700 - YSHIFT,
-            w: 48,
-            h: 120
-          })
+        id: "sanctuary_hub",
+        zoneId: "sanctuary",
+        rect: { x: sanctuaryBounds.x + 200, y: sanctuaryBounds.y + 200, w: 600, h: 600 },
+        solids: [
+          makeFloor(sanctuaryBounds.x + 200, sanctuaryBounds.y + 720)
         ],
-        enemies: offsetEnemies([
-          makeEnemy(1500, 500 - YSHIFT, "knight")
-        ], ZONE_X.abyss),
-        pickups: offsetList([
-          { id: "pickup_wall_jump", type: "ability", abilityId: "wallJump", x: 1760, y: 580 - YSHIFT }
-        ], ZONE_X.abyss)
-      },
-      // ANTE-CÂMARA: preparação e POGO.
-      {
-        id: "antechamber_entry",
-        zoneId: "antechamber",
-        rect: { x: ZONE_X.antechamber, y: 0, w: 800, h: WORLD.h },
-        solids: offsetList([
-          { x: 0, y: 780 - YSHIFT, w: 1600, h: 120 },
-          { x: 460, y: 640 - YSHIFT, w: 280, h: 24 }
-        ], ZONE_X.antechamber),
-        bonfires: offsetList([
-          { id: "Ante-câmara", x: 760, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 720, spawnY: 740 - YSHIFT }
-        ], ZONE_X.antechamber),
-        pickups: offsetList([
-          { id: "pickup_pogo_core", type: "ability", abilityId: "pogo", x: 520, y: 600 - YSHIFT }
-        ], ZONE_X.antechamber)
-      },
-      {
-        id: "antechamber_gate",
-        zoneId: "antechamber",
-        rect: { x: ZONE_X.antechamber + 800, y: 0, w: 800, h: WORLD.h },
-        solids: offsetList([
-          { x: 900, y: 640 - YSHIFT, w: 280, h: 24 }
-        ], ZONE_X.antechamber),
-        gates: [
-          // Espinhos: só atravessa com POGO.
-          makeGate({ id: "pogo_gate", type: "pogo", x: ZONE_X.antechamber + 1020, y: 740 - YSHIFT, w: 240, h: 60 })
+        bonfires: [
+          { id: "Santuário", x: sanctuaryBounds.x + 260, y: sanctuaryBounds.y + 482, w: 26, h: 38, spawnX: sanctuaryBounds.x + 220, spawnY: sanctuaryBounds.y + 480 }
         ],
-        spikes: offsetList([
-          // Espinhos: só atravessa com POGO.
-          { x: 1020, y: 760 - YSHIFT, w: 240, h: 20 }
-        ], ZONE_X.antechamber),
-        pickups: offsetList([
-          { id: "pickup_relic_iron_heart", type: "relic", itemId: "relic_iron_heart", x: 980, y: 700 - YSHIFT }
-        ], ZONE_X.antechamber)
-      },
-      // BOSS: aproximação e arena.
-      {
-        id: "boss_approach",
-        zoneId: "boss",
-        rect: { x: ZONE_X.boss, y: 0, w: 400, h: WORLD.h },
-        solids: offsetList([
-          { x: 0, y: 780 - YSHIFT, w: ZONE_W.boss, h: 120 }
-        ], ZONE_X.boss)
-      },
-      {
-        id: "boss_arena",
-        zoneId: "boss",
-        rect: { x: ZONE_X.boss + 400, y: 0, w: 1600, h: WORLD.h },
-        solids: offsetList([
-          { x: 320, y: 640 - YSHIFT, w: 260, h: 24 },
-          { x: 1420, y: 640 - YSHIFT, w: 260, h: 24 },
-          { x: 900, y: 560 - YSHIFT, w: 200, h: 24 }
-        ], ZONE_X.boss + 400),
-        bonfires: offsetList([
-          { id: "Arena", x: 960, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 920, spawnY: 740 - YSHIFT, locked: true }
-        ], ZONE_X.boss + 400),
-        gates: [
-          makeGate({ id: "boss_gate_left", type: "boss", x: ZONE_X.boss + 400, y: 560 - YSHIFT, w: 24, h: 220 }),
-          makeGate({ id: "boss_gate_right", type: "boss", x: ZONE_X.boss + 400 + 1600 - 24, y: 560 - YSHIFT, w: 24, h: 220 })
+        pickups: [
+          { id: "pickup_dash_core", type: "ability", abilityId: "dash", x: sanctuaryBounds.x + 320, y: sanctuaryBounds.y + 420 }
         ],
-        bossSpawn: { x: ZONE_X.boss + 400 + 1200, y: 670 - YSHIFT, bossId: PRIMARY_BOSS_ID },
-        boss: null
-      },
-      // FORJA: novas salas além do boss.
-      {
-        id: "foundry_entry",
-        zoneId: "foundry",
-        rect: { x: ZONE_X.foundry, y: 0, w: 1000, h: WORLD.h },
-        solids: offsetList([
-          { x: 0, y: 780 - YSHIFT, w: 2200, h: 120 },
-          { x: 260, y: 640 - YSHIFT, w: 260, h: 24 },
-          { x: 660, y: 580 - YSHIFT, w: 260, h: 24 }
-        ], ZONE_X.foundry),
-        enemies: offsetEnemies([
-          makeEnemy(320, 740, "knight"),
-          makeEnemy(740, 540 - YSHIFT, "hollow")
-        ], ZONE_X.foundry),
-        pickups: offsetList([
-          { id: "pickup_iron_shard_1", type: "material", itemId: "material_iron_shard", x: 520, y: 540 - YSHIFT }
-        ], ZONE_X.foundry)
+        chests: [
+          { id: "chest_sanctuary", x: sanctuaryBounds.x + 120, y: sanctuaryBounds.y + 470, w: 40, h: 28, zoneKey: "sanctuary" }
+        ]
       },
       {
-        id: "foundry_depths",
-        zoneId: "foundry",
-        rect: { x: ZONE_X.foundry + 1000, y: 0, w: 1200, h: WORLD.h },
-        solids: offsetList([
-          { x: 1000, y: 780 - YSHIFT, w: 520, h: 120 },
-          { x: 1600, y: 780 - YSHIFT, w: 600, h: 120 },
-          { x: 1180, y: 680 - YSHIFT, w: 280, h: 24 },
-          { x: 1500, y: 600 - YSHIFT, w: 220, h: 24 },
-          { x: 1820, y: 520 - YSHIFT, w: 260, h: 24 },
-          { x: 1900, y: 460 - YSHIFT, w: 200, h: 24 },
-          { x: 1900, y: 980 - YSHIFT, w: 260, h: 24 }
-        ], ZONE_X.foundry),
-        gates: [
-          makeGate({
-            id: "tower_gate",
-            type: "wall",
-            hint: "As pedras da torre exigem saltos entre paredes.",
-            x: ZONE_X.tower - 36,
-            y: 460 - YSHIFT,
-            w: 36,
-            h: 160
-          }),
-          makeGate({
-            id: "undercroft_gate",
-            type: "sprint",
-            hint: "Precisa de impulso para atravessar o desfiladeiro.",
-            x: ZONE_X.tower - 36,
-            y: 960 - YSHIFT,
-            w: 36,
-            h: 120
-          })
+        id: "aqueduct_gate",
+        zoneId: "aqueduct",
+        rect: { x: aqueductBounds.x + 600, y: aqueductBounds.y + 200, w: 600, h: 600 },
+        solids: [
+          makeFloor(aqueductBounds.x + 600, aqueductBounds.y + 720)
         ],
-        bonfires: offsetList([
-          { id: "Forja", x: 1640, y: 742 - YSHIFT, w: 26, h: 38, spawnX: 1600, spawnY: 740 - YSHIFT }
-        ], ZONE_X.foundry),
-        enemies: offsetEnemies([
-          makeEnemy(1240, 640 - YSHIFT, "hollow"),
-          makeEnemy(1640, 740, "knight"),
-          makeEnemy(1900, 480 - YSHIFT, "hollow")
-        ], ZONE_X.foundry),
-        pickups: offsetList([
-          { id: "pickup_armor_plate", type: "armor", itemId: "armor_plate", x: 1880, y: 480 - YSHIFT }
-        ], ZONE_X.foundry)
+        gates: [
+          makeGate({ id: "aqueduct_dash_gate", type: "dash", hint: "Precisa de dash para atravessar o vão.", x: aqueductBounds.x + 820, y: aqueductBounds.y + 420, w: 80, h: 120 }),
+          makeGate({ id: "aqueduct_wall_gate", type: "wall", hint: "Só a escalada em parede abre essa passagem.", x: aqueductBounds.x + 1180, y: aqueductBounds.y + 260, w: 60, h: 200 })
+        ],
+        chests: [
+          { id: "chest_aqueduct", x: aqueductBounds.x + 720, y: aqueductBounds.y + 470, w: 40, h: 28, zoneKey: "aqueduct" }
+        ]
       },
-      // TORRE: verticalidade e chefe opcional.
       {
-        id: "tower_base",
+        id: "gardens_unlock",
+        zoneId: "gardens",
+        rect: { x: gardensBounds.x + 1200, y: gardensBounds.y + 200, w: 600, h: 600 },
+        solids: [
+          makeFloor(gardensBounds.x + 1200, gardensBounds.y + 720),
+          makePlatform(gardensBounds.x + 1320, gardensBounds.y + 520, 160)
+        ],
+        pickups: [
+          { id: "pickup_double_jump", type: "ability", abilityId: "doubleJump", x: gardensBounds.x + 1320, y: gardensBounds.y + 380 }
+        ],
+        gates: [
+          makeGate({ id: "gardens_double_gate", type: "doubleJump", hint: "Um salto duplo rompe este salto.", x: gardensBounds.x + 1260, y: gardensBounds.y + 320, w: 80, h: 140 })
+        ],
+        chests: [
+          { id: "chest_gardens", x: gardensBounds.x + 1220, y: gardensBounds.y + 470, w: 40, h: 28, zoneKey: "gardens" }
+        ]
+      },
+      {
+        id: "catacombs_unlock",
+        zoneId: "catacombs",
+        rect: { x: catacombsBounds.x + 600, y: catacombsBounds.y + 200, w: 600, h: 600 },
+        solids: [
+          makeFloor(catacombsBounds.x + 600, catacombsBounds.y + 720),
+          makePlatform(catacombsBounds.x + 720, catacombsBounds.y + 520, 160)
+        ],
+        pickups: [
+          { id: "pickup_wall_jump", type: "ability", abilityId: "wallJump", x: catacombsBounds.x + 720, y: catacombsBounds.y + 380 }
+        ],
+        chests: [
+          { id: "chest_catacombs", x: catacombsBounds.x + 720, y: catacombsBounds.y + 470, w: 40, h: 28, zoneKey: "catacombs" }
+        ]
+      },
+      {
+        id: "tower_gate",
         zoneId: "tower",
-        rect: { x: ZONE_X.tower, y: 0, w: 700, h: 600 },
-        solids: offsetList([
-          { x: 0, y: 720 - YSHIFT, w: 340, h: 120 },
-          { x: 500, y: 720 - YSHIFT, w: 400, h: 120 },
-          { x: 140, y: 600 - YSHIFT, w: 180, h: 24, oneWay: true },
-          { x: 380, y: 540 - YSHIFT, w: 200, h: 24, oneWay: true },
-          { x: 80, y: 460 - YSHIFT, w: 160, h: 24, oneWay: true },
-          { x: 320, y: 400 - YSHIFT, w: 140, h: 24, oneWay: true },
-          { x: 360, y: 640 - YSHIFT, w: 120, h: 16, oneWay: true },
-          { x: 380, y: 560 - YSHIFT, w: 100, h: 16, oneWay: true },
-          { x: 360, y: 480 - YSHIFT, w: 120, h: 16, oneWay: true }
-        ], ZONE_X.tower),
-        enemies: offsetEnemies([
-          makeEnemy(260, 700 - YSHIFT, "stalker"),
-          makeEnemy(480, 520 - YSHIFT, "hollow")
-        ], ZONE_X.tower),
-        pickups: offsetList([
-          { id: "pickup_tower_shard", type: "material", itemId: "material_iron_shard", x: 200, y: 560 - YSHIFT }
-        ], ZONE_X.tower)
-      },
-      {
-        id: "tower_mid",
-        zoneId: "tower",
-        rect: { x: ZONE_X.tower + 700, y: 0, w: 700, h: 600 },
-        solids: offsetList([
-          { x: 700, y: 720 - YSHIFT, w: 700, h: 120 },
-          { x: 820, y: 620 - YSHIFT, w: 200, h: 24, oneWay: true },
-          { x: 1080, y: 540 - YSHIFT, w: 200, h: 24, oneWay: true },
-          { x: 900, y: 460 - YSHIFT, w: 180, h: 24, oneWay: true },
-          { x: 1160, y: 380 - YSHIFT, w: 160, h: 24, oneWay: true },
-          { x: 980, y: 340 - YSHIFT, w: 160, h: 22, oneWay: true },
-          { x: 1120, y: 320 - YSHIFT, w: 140, h: 22, oneWay: true }
-        ], ZONE_X.tower),
-        enemies: offsetEnemies([
-          makeEnemy(900, 700 - YSHIFT, "charger"),
-          makeEnemy(1160, 500 - YSHIFT, "stalker")
-        ], ZONE_X.tower)
-      },
-      {
-        id: "tower_summit",
-        zoneId: "tower",
-        rect: { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 600 },
-        solids: offsetList([
-          { x: 1400, y: 720 - YSHIFT, w: 800, h: 120 },
-          { x: 1500, y: 560 - YSHIFT, w: 220, h: 24, oneWay: true },
-          { x: 1780, y: 480 - YSHIFT, w: 160, h: 24, oneWay: true },
-          { x: 1660, y: 400 - YSHIFT, w: 180, h: 24, oneWay: true },
-          { x: 1840, y: 360 - YSHIFT, w: 140, h: 22, oneWay: true },
-          { x: 1720, y: 340 - YSHIFT, w: 160, h: 22, oneWay: true }
-        ], ZONE_X.tower),
-        gates: [
-          makeGate({ id: "tower_boss_left", type: "boss", x: ZONE_X.tower + 1460, y: 360 - YSHIFT, w: 24, h: 220 }),
-          makeGate({ id: "tower_boss_right", type: "boss", x: ZONE_X.tower + 1400 + 520, y: 360 - YSHIFT, w: 24, h: 220 }),
-          makeGate({ id: "tower_spire_gate", type: "door", x: ZONE_X.tower + 1700, y: 360 - YSHIFT, w: 28, h: 380 }),
-          makeGate({
-            id: "tower_to_abyss",
-            type: "dash",
-            hint: "Um impulso aéreo abre caminho para além da torre.",
-            x: ZONE_X.abyss - 36,
-            y: 700 - YSHIFT,
-            w: 36,
-            h: 160
-          })
+        rect: { x: towerBounds.x - 200, y: towerBounds.y + 1800, w: 600, h: 600 },
+        solids: [
+          makeFloor(towerBounds.x - 200, towerBounds.y + 2320)
         ],
-        pickups: offsetList([
-          { id: "pickup_tower_cache", type: "material", itemId: "material_iron_shard", x: 1860, y: 320 - YSHIFT }
-        ], ZONE_X.tower),
-        bossSpawn: { x: ZONE_X.tower + 1400 + 320, y: 520 - YSHIFT, bossId: "warden" },
-        boss: null
-      },
-      // CRIPTA SUBMERSA: área subterrânea.
-      {
-        id: "undercroft_entry",
-        zoneId: "undercroft",
-        rect: { x: ZONE_X.undercroft, y: 600, w: 700, h: 800 },
-        solids: offsetList([
-          { x: 0, y: 1080 - YSHIFT, w: 900, h: 140 },
-          { x: 160, y: 960 - YSHIFT, w: 220, h: 24 },
-          { x: 420, y: 900 - YSHIFT, w: 200, h: 24 },
-          { x: 120, y: 860 - YSHIFT, w: 180, h: 24 }
-        ], ZONE_X.undercroft),
-        enemies: offsetEnemies([
-          makeEnemy(260, 1040 - YSHIFT, "hollow"),
-          makeEnemy(520, 880 - YSHIFT, "stalker")
-        ], ZONE_X.undercroft),
-        pickups: offsetList([
-          { id: "pickup_crypt_shard", type: "material", itemId: "material_iron_shard", x: 200, y: 920 - YSHIFT }
-        ], ZONE_X.undercroft)
-      },
-      {
-        id: "undercroft_depths",
-        zoneId: "undercroft",
-        rect: { x: ZONE_X.undercroft + 700, y: 600, w: 700, h: 800 },
-        solids: offsetList([
-          { x: 700, y: 1080 - YSHIFT, w: 900, h: 140 },
-          { x: 860, y: 960 - YSHIFT, w: 200, h: 24 },
-          { x: 1120, y: 900 - YSHIFT, w: 200, h: 24 },
-          { x: 980, y: 820 - YSHIFT, w: 160, h: 24 }
-        ], ZONE_X.undercroft),
-        enemies: offsetEnemies([
-          miniBossCharger
-        ], ZONE_X.undercroft),
-        pickups: offsetList([
-          { id: "pickup_crypt_mail", type: "armor", itemId: "armor_mail", x: 1160, y: 880 - YSHIFT }
-        ], ZONE_X.undercroft)
-      },
-      {
-        id: "undercroft_warren",
-        zoneId: "undercroft",
-        rect: { x: ZONE_X.undercroft + 1400, y: 600, w: 600, h: 800 },
-        solids: offsetList([
-          { x: 1400, y: 1080 - YSHIFT, w: 800, h: 140 },
-          { x: 1500, y: 960 - YSHIFT, w: 240, h: 24 },
-          { x: 1780, y: 900 - YSHIFT, w: 180, h: 24 }
-        ], ZONE_X.undercroft),
         gates: [
-          makeGate({
-            id: "undercroft_to_abyss",
-            type: "sprint",
-            hint: "A corrente subterrânea só cede com fôlego extra.",
-            x: ZONE_X.abyss - 36,
-            y: 980 - YSHIFT,
-            w: 36,
-            h: 140
-          })
+          makeGate({ id: "tower_entry_gate", type: "wall", hint: "A torre exige domínio das paredes.", x: towerBounds.x - 40, y: towerBounds.y + 2100, w: 40, h: 200 })
         ],
-        enemies: offsetEnemies([
-          makeEnemy(1560, 1040 - YSHIFT, "stalker"),
-          makeEnemy(1820, 880 - YSHIFT, "hollow")
-        ], ZONE_X.undercroft)
-      },
-      // COFRE LACRADO: área bloqueada por item.
-      {
-        id: "vault_entry",
-        zoneId: "vault",
-        rect: { x: ZONE_X.vault, y: 0, w: 900, h: WORLD.h },
-        solids: offsetList([
-          { x: 0, y: 780 - YSHIFT, w: 1200, h: 120 },
-          { x: 220, y: 640 - YSHIFT, w: 220, h: 24 },
-          { x: 520, y: 560 - YSHIFT, w: 220, h: 24 }
-        ], ZONE_X.vault),
-        enemies: offsetEnemies([
-          makeEnemy(320, 740, "charger"),
-          makeEnemy(620, 520 - YSHIFT, "stalker")
-        ], ZONE_X.vault)
-      },
-      {
-        id: "vault_core",
-        zoneId: "vault",
-        rect: { x: ZONE_X.vault + 900, y: 0, w: 900, h: WORLD.h },
-        solids: offsetList([
-          { x: 900, y: 780 - YSHIFT, w: 1200, h: 120 },
-          { x: 1040, y: 660 - YSHIFT, w: 220, h: 24 },
-          { x: 1320, y: 580 - YSHIFT, w: 220, h: 24 },
-          { x: 1580, y: 500 - YSHIFT, w: 200, h: 24 }
-        ], ZONE_X.vault),
-        enemies: offsetEnemies([
-          makeEnemy(1080, 740, "stalker"),
-          makeEnemy(1460, 540 - YSHIFT, "charger")
-        ], ZONE_X.vault),
-        pickups: offsetList([
-          { id: "pickup_vault_relic", type: "relic", itemId: "relic_ember", x: 1660, y: 460 - YSHIFT }
-        ], ZONE_X.vault)
+        chests: [
+          { id: "chest_tower", x: towerBounds.x + 120, y: towerBounds.y + 2280, w: 40, h: 28, zoneKey: "tower" }
+        ]
       }
     ];
+
+    chunks.push(...extraChunks);
+
+    const addMiniBossToChunk = (chunkId, miniBoss) => {
+      const chunk = chunks.find((item) => item.id === chunkId);
+      if (!chunk) return;
+      if (!chunk.enemies) chunk.enemies = [];
+      chunk.enemies.push(miniBoss);
+    };
+    addMiniBossToChunk("sanctuary_4", miniBossKnight);
+    addMiniBossToChunk("catacombs_2", miniBossCharger);
+    addMiniBossToChunk("gardens_3", miniBossArcher);
+    addMiniBossToChunk("aqueduct_6", miniBossHeavy);
 
     const player = makePlayer();
     const HUD_MASK_UNIT = 20;
@@ -3363,31 +3540,44 @@ import {
     const movingPlatforms = [
       {
         id: "tower_elevator",
-        x: ZONE_X.tower + 520,
-        y: 700 - YSHIFT,
+        x: towerBounds.x + 220,
+        y: towerBounds.y + 2200,
         w: 160,
         h: 20,
-        minY: 360 - YSHIFT,
-        maxY: 980 - YSHIFT,
+        minY: towerBounds.y + 800,
+        maxY: towerBounds.y + 2400,
         speed: 70,
         dir: -1,
-        startY: 700 - YSHIFT,
+        startY: towerBounds.y + 2200,
         startDir: -1
       }
     ];
     const worldSolids = [
       ...chunks.flatMap((chunk) => chunk.solids || []),
+      ...towerPlatforms,
+      ...towerWalls,
       ...worldGates,
       ...movingPlatforms
     ];
+    const uniqueSolids = [];
+    const solidSet = new Set();
+    worldSolids.forEach((solid) => {
+      if (solidSet.has(solid)) return;
+      solidSet.add(solid);
+      uniqueSolids.push(solid);
+    });
 
     level.w = WORLD.w;
     level.h = WORLD.h;
-    level.solids = worldSolids;
+    level.solids = uniqueSolids;
     level.bonfires = worldBonfires;
 
     let activeEnemies = [];
     let activeNpcs = [];
+    let activeChests = [];
+    let collisionSolids = [];
+    let activeGates = [];
+    let activeSpikes = [];
     const activeChunks = new Set();
     const doorFlags = {
       hub_shortcut: false,
@@ -3396,7 +3586,7 @@ import {
 
     // ===== Inventory State =====
     const getItemById = (itemId) => itemDB[itemId] || null;
-    const isStackable = (item) => item?.type === "material" && item.stackable;
+    const isStackable = (item) => (item?.type === "material" || item?.type === "consumable") && item.stackable;
 
     const getWeaponItem = (itemId) => {
       const item = getItemById(itemId);
@@ -3581,6 +3771,8 @@ import {
           ? item.stats.effects.map((effect) => `<li>${effect.label}</li>`).join("")
           : "<li>Efeito desconhecido.</li>";
         stats = `<ul>${effects}</ul>`;
+      } else if (item.type === "consumable") {
+        stats = `<p>Consumível • Quantidade: ${qty}</p>`;
       } else if (item.type === "material" && item.stackable) {
         stats = `<p>Quantidade: ${qty}</p>`;
       }
@@ -3626,13 +3818,13 @@ import {
       buildItemTooltip(null);
     };
 
-    const grantItem = (itemType, itemId) => {
+    const grantItem = (itemType, itemId, qty = 1) => {
       const item = getItemById(itemId);
       if (!item || item.type !== itemType) {
         toast("Item desconhecido.");
         return false;
       }
-      const collected = addItemToInventory(itemId, 1);
+      const collected = addItemToInventory(itemId, qty);
       if (!collected) return false;
       toast(`Você obteve: ${item.name}.`);
       if (item.type === "weapon" && !gameState.equipment.weaponId) {
@@ -3929,6 +4121,20 @@ import {
           }
         });
       }
+      if (chunk.spawns){
+        chunk.spawns.forEach((spawn) => {
+          if (!Number.isFinite(spawn.timer)) spawn.timer = randRange(0, spawn.cooldown || 4);
+          if (!Number.isFinite(spawn.alive)) spawn.alive = 0;
+        });
+      }
+      if (chunk.chests){
+        chunk.chests.forEach((chest) => {
+          if (chest.opened == null) {
+            chest.opened = openedChests.has(chest.id);
+          }
+          if (!chest.zoneId) chest.zoneId = chunk.zoneId;
+        });
+      }
       if (!chunk.drops) chunk.drops = [];
       chunk._init = true;
     };
@@ -3945,6 +4151,12 @@ import {
         e.staggerT = 0;
         e.state = "idle";
         e.t = 0; e.hitT = 0; e.invulT = 0;
+      }
+      if (chunk.spawns) {
+        chunk.spawns.forEach((spawn) => {
+          spawn.alive = 0;
+          spawn.timer = randRange(0, spawn.cooldown || 4);
+        });
       }
     };
 
@@ -4123,6 +4335,7 @@ import {
       }
       if (zone && !visitedZones.has(zone.id)) {
         visitedZones.add(zone.id);
+        zone.discovered = true;
       }
       if (zoneText && !zoneText.textContent && currentZone) {
         zoneText.textContent = currentZone.name;
@@ -4154,15 +4367,27 @@ import {
     };
 
     const CHUNK_ACTIVE_RANGE = 900;
+    const CULL_MARGIN = 480;
     const updateActiveChunks = () => {
       activeChunks.clear();
       activeEnemies = [];
       activeNpcs = [];
+      activeChests = [];
+      activeGates = [];
+      activeSpikes = [];
+      collisionSolids = [];
       const px = player.x + player.w / 2;
       const py = player.y + player.h / 2;
+      const viewRect = {
+        x: cam.x - CULL_MARGIN,
+        y: cam.y - CULL_MARGIN,
+        w: view.w + CULL_MARGIN * 2,
+        h: view.h + CULL_MARGIN * 2
+      };
       for (const chunk of chunks){
         const d = distToRect(px, py, chunk.rect);
-        if (d <= CHUNK_ACTIVE_RANGE){
+        const inView = rectsIntersect(chunk.rect, viewRect);
+        if (d <= CHUNK_ACTIVE_RANGE || inView){
           initChunk(chunk);
           activeChunks.add(chunk);
           if (chunk.enemies){
@@ -4174,7 +4399,46 @@ import {
           if (chunk.npcs) {
             activeNpcs.push(...chunk.npcs);
           }
+          if (chunk.chests) {
+            activeChests.push(...chunk.chests);
+          }
+          if (chunk.solids) collisionSolids.push(...chunk.solids);
+          if (chunk.gates) {
+            activeGates.push(...chunk.gates);
+            collisionSolids.push(...chunk.gates);
+          }
+          if (chunk.spikes) activeSpikes.push(...chunk.spikes);
         }
+      }
+      for (const platform of movingPlatforms) {
+        const rect = { x: platform.x, y: platform.y, w: platform.w, h: platform.h };
+        if (rectsIntersect(rect, viewRect)) {
+          collisionSolids.push(platform);
+        }
+      }
+    };
+
+    const updateSpawnPoints = (dt) => {
+      for (const chunk of activeChunks){
+        if (!chunk.spawns) continue;
+        if (!chunk.enemies) chunk.enemies = [];
+        chunk.spawns.forEach((spawn) => {
+          spawn.timer = Math.max(0, spawn.timer - dt);
+          if (spawn.timer > 0) return;
+          if (spawn.alive >= spawn.maxAlive) {
+            spawn.timer = spawn.cooldown;
+            return;
+          }
+          const enemy = makeEnemy(spawn.x, spawn.y, spawn.kind);
+          enemy._sx = enemy.x;
+          enemy._sy = enemy.y;
+          enemy.spawnId = spawn.id;
+          enemy.spawnChunkId = chunk.id;
+          chunk.enemies.push(enemy);
+          activeEnemies.push(enemy);
+          spawn.alive += 1;
+          spawn.timer = spawn.cooldown;
+        });
       }
     };
   
@@ -4189,6 +4453,7 @@ import {
     let hitStopTimer = 0;
     let gateToastCooldown = 0;
     const hitParticles = [];
+    const enemyProjectiles = [];
 
     const triggerDamageFlash = (ms = 120) => {
       damageFlash.classList.add("show");
@@ -4300,6 +4565,12 @@ import {
       if (solid.type === "dash") {
         return player.abilities.dash && player.dashT > 0;
       }
+      if (solid.type === "doubleJump") {
+        return gameState.unlocks.doubleJump;
+      }
+      if (solid.type === "wall") {
+        return player.wallJumpUnlocked;
+      }
       if (solid.type === "sprint") {
         return player.isSprinting;
       }
@@ -4317,7 +4588,7 @@ import {
 
     const shouldCollideWithSolid = (solid, ent) => {
       if (!solid.gate) return true;
-      if (solid.type === "dash" || solid.type === "sprint" || solid.type === "pogo" || solid.type === "abyss" || solid.type === "key"){
+      if (solid.type === "dash" || solid.type === "sprint" || solid.type === "pogo" || solid.type === "abyss" || solid.type === "key" || solid.type === "wall" || solid.type === "doubleJump"){
         if (ent !== player) return true;
         return !canPassGate(solid, ent);
       }
@@ -4334,7 +4605,7 @@ import {
       // Horizontal
       ent.x += ent.vx * dt;
       let hitX = false;
-      for (const s of level.solids){
+      for (const s of collisionSolids){
         if (s.oneWay) continue;
         if (shouldCollideWithSolid(s, ent) && rectsOverlap(ent, s)){
           if (ent === player && s.gate && gateToastCooldown <= 0){
@@ -4344,7 +4615,8 @@ import {
             const needsWall = s.type === "wall" && !player.wallJumpUnlocked;
             const needsPogo = s.type === "pogo" && !gameState.unlocks.pogo;
             const needsKey = s.type === "key" && !isItemInInventory(s.requiredItemId);
-            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo || needsKey){
+            const needsDouble = s.type === "doubleJump" && !gameState.unlocks.doubleJump;
+            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo || needsKey || needsDouble){
               toast(s.hint || "Uma técnica te falta…");
               gateToastCooldown = 1.2;
             }
@@ -4360,7 +4632,7 @@ import {
       const prevY = ent.y;
       ent.y += ent.vy * dt;
       ent.onGround = false;
-      for (const s of level.solids){
+      for (const s of collisionSolids){
         if (s.oneWay){
           if (ent.vy < 0) continue;
           if (ent === player && player.dropThroughTimer > 0) continue;
@@ -4379,7 +4651,8 @@ import {
             const needsWall = s.type === "wall" && !player.wallJumpUnlocked;
             const needsPogo = s.type === "pogo" && !gameState.unlocks.pogo;
             const needsKey = s.type === "key" && !isItemInInventory(s.requiredItemId);
-            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo || needsKey){
+            const needsDouble = s.type === "doubleJump" && !gameState.unlocks.doubleJump;
+            if (needsSprint || needsAbyss || needsDash || needsWall || needsPogo || needsKey || needsDouble){
               toast(s.hint || "Uma técnica te falta…");
               gateToastCooldown = 1.2;
             }
@@ -4529,6 +4802,10 @@ import {
       if (e.kind === "knight") return 180;
       if (e.kind === "charger") return 160;
       if (e.kind === "stalker") return 130;
+      if (e.kind === "runner") return 120;
+      if (e.kind === "archer") return 140;
+      if (e.kind === "hopper") return 150;
+      if (e.kind === "heavy") return 200;
       return 90;
     }
 
@@ -4536,6 +4813,10 @@ import {
       if (e.kind === "knight") return 120;
       if (e.kind === "charger") return 100;
       if (e.kind === "stalker") return 80;
+      if (e.kind === "runner") return 70;
+      if (e.kind === "archer") return 90;
+      if (e.kind === "hopper") return 90;
+      if (e.kind === "heavy") return 140;
       return 60;
     }
 
@@ -4546,9 +4827,86 @@ import {
       chunk.drops.push({ ...drop, active: true });
     }
 
+    const rollLoot = (tableKey, luck = 0, options = {}) => {
+      const table = LOOT_TABLES[tableKey] || [];
+      if (!table.length) return null;
+      const candidates = table.filter((entry) => {
+        if (options.uniqueOnly && !entry.unique) return false;
+        if (options.nonUniqueOnly && entry.unique) return false;
+        return true;
+      });
+      if (!candidates.length) return null;
+      const bonus = Math.max(0, luck);
+      let total = 0;
+      candidates.forEach((entry) => {
+        total += entry.w + bonus;
+      });
+      let roll = Math.random() * total;
+      for (const entry of candidates){
+        roll -= entry.w + bonus;
+        if (roll <= 0){
+          return entry;
+        }
+      }
+      return candidates[candidates.length - 1];
+    };
+
+    const shouldGrantUnique = (itemId) => {
+      if (!itemId) return false;
+      if (uniqueLootFound.has(itemId)) return false;
+      if (isItemInInventory(itemId)) return false;
+      return true;
+    };
+
+    const applyLootReward = (chunk, x, y, entry) => {
+      if (!entry) return;
+      if (entry.id === "gold_small") {
+        const amount = Math.round(randRange(entry.min, entry.max));
+        createChunkDrop(chunk, { x, y, type: "gold", amount });
+        return;
+      }
+      const qty = Math.round(randRange(entry.min, entry.max));
+      createChunkDrop(chunk, { x, y, type: getItemById(entry.id)?.type || "material", itemId: entry.id, qty, unique: entry.unique });
+    };
+
+    const dropLootOnDeath = (enemy, zoneKey) => {
+      const chunk = getChunkForPosition(enemy.x, enemy.y);
+      if (!chunk) return;
+      const dropX = enemy.x + enemy.w / 2 - 10;
+      const dropY = enemy.y + enemy.h - 18;
+      const souls = Math.max(10, Math.round(getEnemySoulValue(enemy) * 0.25));
+      createChunkDrop(chunk, { x: dropX, y: dropY, type: "souls", amount: souls });
+      const gold = Math.max(4, Math.round(getEnemySoulValue(enemy) * 0.12));
+      createChunkDrop(chunk, { x: dropX + 16, y: dropY, type: "gold", amount: gold });
+      if (Math.random() <= 0.2) {
+        createChunkDrop(chunk, { x: dropX + 6, y: dropY - 10, type: "quest", itemId: "fragment" });
+      }
+
+      const uniqueRoll = Math.random() <= 0.01;
+      if (uniqueRoll) {
+        const uniqueEntry = rollLoot(zoneKey, 0, { uniqueOnly: true });
+        if (uniqueEntry && shouldGrantUnique(uniqueEntry.id)) {
+          applyLootReward(chunk, dropX - 12, dropY - 6, uniqueEntry);
+          return;
+        }
+      }
+
+      const rareRoll = Math.random() <= 0.08;
+      const commonRoll = Math.random() <= 0.3;
+      if (rareRoll || commonRoll) {
+        const entry = rollLoot(zoneKey, 0, { nonUniqueOnly: true });
+        if (entry) applyLootReward(chunk, dropX - 6, dropY - 6, entry);
+      }
+    };
+
     const handleEnemyKilled = (enemy) => {
       const chunk = getChunkForPosition(enemy.x, enemy.y);
       if (!chunk || !enemy) return;
+      if (enemy.spawnId && enemy.spawnChunkId) {
+        const spawnChunk = chunks.find((item) => item.id === enemy.spawnChunkId);
+        const spawn = spawnChunk?.spawns?.find((item) => item.id === enemy.spawnId);
+        if (spawn && spawn.alive > 0) spawn.alive -= 1;
+      }
       if (enemy.isMiniBoss && enemy.id){
         defeatedMiniBosses.add(enemy.id);
         saveMiniBosses(defeatedMiniBosses);
@@ -4567,25 +4925,8 @@ import {
         }
         return;
       }
-      const fragmentDropChance = 0.35;
-      if (Math.random() <= fragmentDropChance) {
-        createChunkDrop(chunk, {
-          x: enemy.x + enemy.w / 2 - 10,
-          y: enemy.y + enemy.h - 18,
-          type: "quest",
-          itemId: "fragment"
-        });
-      }
-      const commonDropChance = 0.03;
-      if (Math.random() <= commonDropChance){
-        createChunkDrop(chunk, {
-          x: enemy.x + enemy.w / 2 - 10,
-          y: enemy.y + enemy.h - 18,
-          type: "material",
-          itemId: "material_iron_shard"
-        });
-        toast("Algo caiu ao chão.");
-      }
+      const zoneKey = zoneMap.get(chunk.zoneId)?.theme || chunk.zoneId || "ruins";
+      dropLootOnDeath(enemy, zoneKey);
       updateKillQuests(enemy);
     };
 
@@ -4762,12 +5103,13 @@ import {
         const alreadyKnown = player.abilities[ability];
         if (!alreadyKnown) {
           player.abilities[ability] = true;
-          toast(`Habilidade desbloqueada: ${ability === "dash" ? "Dash" : ability === "wallJump" ? "Wall Jump" : "Pogo"}.`);
+          toast(`Habilidade desbloqueada: ${ability === "dash" ? "Dash" : ability === "wallJump" ? "Wall Jump" : ability === "doubleJump" ? "Duplo Salto" : "Pogo"}.`);
         } else {
           toast("Técnica já conhecida.");
         }
         if (ability === "wallJump") gameState.unlocks.wallJump = true;
         if (ability === "pogo") gameState.unlocks.pogo = true;
+        if (ability === "doubleJump") gameState.unlocks.doubleJump = true;
         requestSave("ability");
         return true;
       };
@@ -4787,8 +5129,16 @@ import {
               collected = true;
             } else if (drop.type === "ability"){
               collected = handleAbilityPickup(drop);
+            } else if (drop.type === "gold") {
+              gameState.gold += drop.amount || 0;
+              toast(`Ouro +${drop.amount || 0}`);
+              collected = true;
+            } else if (drop.type === "souls") {
+              player.souls += drop.amount || 0;
+              toast(`Souls +${drop.amount || 0}`);
+              collected = true;
             } else {
-              collected = grantItem(drop.type, drop.itemId);
+              collected = grantItem(drop.type, drop.itemId, drop.qty || 1);
             }
             if (!collected) continue;
             drop.active = false;
@@ -4800,6 +5150,9 @@ import {
                 setBossRewardClaimed(currentBossId, true);
                 toast("Núcleo cinerário absorvido. Estus máximo +1.");
               }
+            }
+            if (drop.unique && drop.itemId) {
+              uniqueLootFound.add(drop.itemId);
             }
             if (recordPickup && drop.id) {
               collectedPickups.add(drop.id);
@@ -4864,7 +5217,7 @@ import {
 
     function tryOpenDoor(){
       const p = { x: player.x, y: player.y, w: player.w, h: player.h };
-      for (const gate of worldGates){
+      for (const gate of activeGates){
         if (gate.type !== "door" || doorFlags[gate.id]) continue;
         const trigger = { x: gate.x - 20, y: gate.y, w: gate.w + 40, h: gate.h };
         if (!rectsOverlap(p, trigger)) continue;
@@ -4880,6 +5233,61 @@ import {
         return;
       }
     }
+
+    const getChestInRange = () => {
+      const px = player.x + player.w / 2;
+      const py = player.y + player.h / 2;
+      let closest = null;
+      let closestD = 80;
+      for (const chest of activeChests) {
+        const cx = chest.x + chest.w / 2;
+        const cy = chest.y + chest.h / 2;
+        const d = Math.hypot(px - cx, py - cy);
+        if (d <= closestD) {
+          closest = chest;
+          closestD = d;
+        }
+      }
+      return closest;
+    };
+
+    const tryOpenChest = () => {
+      const chest = getChestInRange();
+      if (!chest) return false;
+      if (chest.opened) {
+        toast("O baú já está vazio.");
+        return true;
+      }
+      const tableKey = chest.zoneKey || zoneMap.get(chest.zoneId)?.theme || "ruins";
+      const rolls = Math.floor(randRange(2, 5));
+      let granted = 0;
+      for (let i = 0; i < rolls; i++) {
+        let entry = rollLoot(tableKey);
+        if (entry?.unique && !shouldGrantUnique(entry.id)) {
+          entry = rollLoot(tableKey, 0, { nonUniqueOnly: true });
+        }
+        if (!entry) continue;
+        if (entry.id === "gold_small") {
+          const amount = Math.round(randRange(entry.min, entry.max));
+          gameState.gold += amount;
+          toast(`Ouro +${amount}`);
+          granted += 1;
+          continue;
+        }
+        const qty = Math.round(randRange(entry.min, entry.max));
+        const itemType = getItemById(entry.id)?.type || "material";
+        const collected = grantItem(itemType, entry.id, qty);
+        if (collected && entry.unique) {
+          uniqueLootFound.add(entry.id);
+        }
+        if (collected) granted += 1;
+      }
+      chest.opened = true;
+      if (chest.id) openedChests.add(chest.id);
+      requestSave("chest");
+      if (!granted) toast("O baú estava vazio.");
+      return true;
+    };
   
     // ===== Enemy AI =====
     function enemyUpdate(e, dt){
@@ -4898,6 +5306,7 @@ import {
       e.attackCD = Math.max(0, e.attackCD - dt);
       e.leapCD = Math.max(0, e.leapCD - dt);
       e.chargeCD = Math.max(0, e.chargeCD - dt);
+      e.rangedCD = Math.max(0, e.rangedCD - dt);
   
       const px = player.x + player.w/2;
       const ex = e.x + e.w/2;
@@ -4929,10 +5338,13 @@ import {
         if (dist > e.aggro * 1.15) e.state = "idle";
 
         // approach
-        const targetSpeed = e.speed * facing;
+        let targetSpeed = e.speed * facing;
+        if (e.kind === "archer" && dist < 180){
+          targetSpeed = -e.speed * facing;
+        }
         e.vx = lerp(e.vx, targetSpeed, 0.12);
 
-        if (e.kind === "stalker" && e.onGround && e.leapCD <= 0){
+        if ((e.kind === "stalker" || e.kind === "hopper") && e.onGround && e.leapCD <= 0){
           if (dist > e.leapRangeMin && dist < e.leapRangeMax){
             e.state = "leapWindup";
             e.t = e.windup;
@@ -4940,12 +5352,18 @@ import {
           }
         }
 
-        if (e.kind === "charger" && e.onGround && e.chargeCD <= 0){
+        if ((e.kind === "charger" || e.kind === "runner") && e.onGround && e.chargeCD <= 0){
           if (dist > 160 && dist < 320){
             e.state = "chargeWindup";
             e.t = e.windup;
             e.vx *= 0.3;
           }
+        }
+
+        if (e.kind === "archer" && e.rangedCD <= 0 && dist < e.rangedRange){
+          e.state = "shoot";
+          e.t = e.windup;
+          e.vx *= 0.2;
         }
 
         // attack if close and on ground
@@ -5051,6 +5469,27 @@ import {
         e.vx *= 0.88;
         if (e.t <= 0) e.state = "chase";
       }
+      else if (e.state === "shoot"){
+        e.vx *= 0.6;
+        e.t = Math.max(0, e.t - dt);
+        if (e.t <= 0){
+          const projX = e.face === 1 ? e.x + e.w : e.x - 10;
+          enemyProjectiles.push({
+            x: projX,
+            y: e.y + 18,
+            w: 10,
+            h: 6,
+            vx: e.face * 420,
+            vy: 0,
+            dmg: e.dmg,
+            life: 1.6
+          });
+          e.rangedCD = e.rangedCooldown || 1.6;
+          e.attackCD = Math.max(e.attackCD, e.cooldown);
+          e.state = "recover";
+          e.t = 0.4;
+        }
+      }
   
       moveAndCollide(e, dt);
     }
@@ -5074,7 +5513,7 @@ import {
         bossArenaLocked = false;
         triggerShake(6, 12, 0.3);
         playBossDefeatSfx();
-        const arena = getBossChunk(boss.id) || chunks.find((chunk) => chunk.id === "boss_arena");
+        const arena = getBossChunk(boss.id) || chunks.find((chunk) => chunk.id === "penitent_arena");
         arena?.bonfires?.forEach((b) => { b.locked = false; });
         const rewardGold = boss.goldReward || 300;
         gameState.gold += rewardGold;
@@ -5340,6 +5779,8 @@ import {
         saveCollectedPickups(collectedPickups);
         defeatedMiniBosses.clear();
         saveMiniBosses(defeatedMiniBosses);
+        openedChests.clear();
+        uniqueLootFound.clear();
         bossDefeated = {};
         bossRewardClaimed = {};
         localStorage.removeItem(bossDefeatedKey);
@@ -5368,8 +5809,8 @@ import {
       bossLifecycle.instanceById = {};
       bossLifecycle.instanceCounter = 0;
       resetBossEncounter(currentBossId);
-      player.x = ZONE_X.ruins + 180;
-      player.y = 740 - YSHIFT;
+      player.x = ruinsBounds.x + 180;
+      player.y = ruinsBounds.y + 480;
       player.checkpoint = { id: "Ruínas", x: player.x, y: player.y, zoneId: "ruins" };
       currentZoneId = "ruins";
       currentZone = zones.find((zone) => zone.id === currentZoneId) || zones[0];
@@ -5378,6 +5819,7 @@ import {
       cam.x = 0; cam.shakeTime = 0; cam.shakeMag = 0;
       hitStopTimer = 0;
       hitParticles.length = 0;
+      enemyProjectiles.length = 0;
       movingPlatforms.forEach((platform) => {
         platform.y = platform.startY;
         platform.dir = platform.startDir;
@@ -5425,6 +5867,7 @@ import {
       }
 
       updateActiveChunks();
+      updateSpawnPoints(dt);
       updateZoneState();
       updateTowerBossEncounter();
       syncBossArenaState();
@@ -5590,7 +6033,7 @@ import {
       if (input.drink) startDrink();
   
       if (input.interact){
-        if (!tryOpenTrainerDialog() && !tryOpenQuestDialog()) {
+        if (!tryOpenTrainerDialog() && !tryOpenQuestDialog() && !tryOpenChest()) {
           tryPickupItems();
           tryOpenDoor();
           restAtBonfire();
@@ -5602,9 +6045,9 @@ import {
       moveAndCollide(player, dt);
       rideMovingPlatforms(player);
 
-      if (worldSpikes.length){
+      if (activeSpikes.length){
         const pbox = { x: player.x, y: player.y, w: player.w, h: player.h };
-        for (const spike of worldSpikes){
+        for (const spike of activeSpikes){
           if (rectsOverlap(pbox, spike)){
             if (!gameState.unlocks.pogo || player.attackType !== "plunge"){
               playerTakeDamage(14, spike.x);
@@ -5671,8 +6114,8 @@ import {
             }
           }
         }
-        if (isPlunge && !player.attackHit && worldSpikes.length){
-          for (const spike of worldSpikes){
+              if (isPlunge && !player.attackHit && activeSpikes.length){
+                for (const spike of activeSpikes){
             if (rectsOverlap(ah, spike)){
               if (gameState.unlocks.pogo){
                 player.attackHit = true;
@@ -5692,6 +6135,30 @@ import {
   
       // Update enemies
       for (const e of activeEnemies) enemyUpdate(e, dt);
+
+      if (enemyProjectiles.length){
+        const pbox = getPlayerHitbox();
+        for (let i = enemyProjectiles.length - 1; i >= 0; i--){
+          const proj = enemyProjectiles[i];
+          proj.life -= dt;
+          proj.x += proj.vx * dt;
+          proj.y += proj.vy * dt;
+          const projBox = { x: proj.x, y: proj.y, w: proj.w, h: proj.h };
+          if (rectsOverlap(pbox, projBox)){
+            playerTakeDamage(proj.dmg || 12, proj.x);
+            enemyProjectiles.splice(i, 1);
+            continue;
+          }
+          if (collisionSolids.some((solid) => rectsOverlap(projBox, solid))) {
+            enemyProjectiles.splice(i, 1);
+            continue;
+          }
+          if (proj.life <= 0){
+            enemyProjectiles.splice(i, 1);
+            continue;
+          }
+        }
+      }
 
       if (bossActive) {
         bossUpdate(dt);
@@ -5765,7 +6232,8 @@ import {
       ctx.globalAlpha = 1;
   
       // Solids
-      for (const s of level.solids){
+      for (const s of collisionSolids){
+        if (s.gate) continue;
         ctx.fillStyle = "#1a2233";
         fillWorldRect(s.x + ox, s.y + oy, s.w, s.h);
   
@@ -5774,13 +6242,14 @@ import {
         fillWorldRect(s.x + ox, s.y + oy, s.w, 3);
       }
       // Gates (dash/door/boss)
-      for (const gate of worldGates){
+      for (const gate of activeGates){
         const isDoorOpen = gate.type === "door" && doorFlags[gate.id];
         if (gate.type === "door" && isDoorOpen) continue;
         if (gate.type === "boss" && !bossArenaLocked) continue;
         if (gate.type === "sprint") ctx.fillStyle = "rgba(120,170,255,.55)";
         else if (gate.type === "abyss") ctx.fillStyle = "rgba(90,140,180,.65)";
         else if (gate.type === "wall") ctx.fillStyle = "rgba(150,120,90,.75)";
+        else if (gate.type === "doubleJump") ctx.fillStyle = "rgba(120,200,150,.6)";
         else if (gate.type === "pogo") ctx.fillStyle = "rgba(180,110,200,.6)";
         else if (gate.type === "dash") ctx.fillStyle = "rgba(120,170,255,.6)";
         else if (gate.type === "key") ctx.fillStyle = "rgba(190,150,110,.7)";
@@ -5789,7 +6258,7 @@ import {
       }
 
       // Espinhos
-      for (const spike of worldSpikes){
+      for (const spike of activeSpikes){
         ctx.fillStyle = "rgba(120,60,80,.8)";
         fillWorldRect(spike.x + ox, spike.y + oy, spike.w, spike.h);
       }
@@ -5815,6 +6284,19 @@ import {
         ctx.arc(b.x + b.w/2 + ox, b.y + 28 + oy, 20, 0, Math.PI*2);
         ctx.stroke();
         ctx.globalAlpha = 1;
+      }
+
+      for (const chest of activeChests){
+        const isOpen = chest.opened;
+        ctx.fillStyle = isOpen ? "rgba(120,110,90,.6)" : "rgba(160,120,90,.9)";
+        fillWorldRect(chest.x + ox, chest.y + oy, chest.w, chest.h);
+        ctx.fillStyle = "rgba(30,20,10,.7)";
+        fillWorldRect(chest.x + 4 + ox, chest.y + 6 + oy, chest.w - 8, 6);
+        if (!isOpen){
+          ctx.strokeStyle = "rgba(255,220,160,.6)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(chest.x + 2 + ox, chest.y + 2 + oy, chest.w - 4, chest.h - 4);
+        }
       }
   
       // Death drop orb
@@ -5843,8 +6325,11 @@ import {
           armor: "rgba(140,200,255,.9)",
           relic: "rgba(210,170,255,.9)",
           material: "rgba(190,200,220,.9)",
+          consumable: "rgba(140,220,160,.9)",
           ability: "rgba(180,220,255,.9)",
-          quest: "rgba(255,214,120,.9)"
+          quest: "rgba(255,214,120,.9)",
+          gold: "rgba(240,210,120,.9)",
+          souls: "rgba(140,220,255,.9)"
         };
         const glow = colors[drop.type] || "rgba(200,200,200,.9)";
         ctx.fillStyle = glow;
@@ -5897,6 +6382,10 @@ import {
         if (e.kind === "knight") baseBody = "#8b95a8";
         if (e.kind === "stalker") baseBody = "#7b6fa6";
         if (e.kind === "charger") baseBody = "#8a6d5f";
+        if (e.kind === "runner") baseBody = "#7d8f6a";
+        if (e.kind === "archer") baseBody = "#6f8fa8";
+        if (e.kind === "hopper") baseBody = "#7b8fa6";
+        if (e.kind === "heavy") baseBody = "#6b5a52";
         ctx.fillStyle = baseBody;
         if (e.state === "windup"){
           const pulse = 0.45 + Math.sin(now()/1000 * 18) * 0.25;
@@ -5924,6 +6413,11 @@ import {
           ctx.fillStyle = "rgba(255,80,120,.9)";
           fillWorldRect(e.x + ox, e.y - 10 + oy, e.w * ratio, 5);
         }
+      }
+
+      for (const proj of enemyProjectiles){
+        ctx.fillStyle = "rgba(200,170,120,.9)";
+        fillWorldRect(proj.x + ox, proj.y + oy, proj.w, proj.h);
       }
 
       if (boss && boss.hp > 0 && !isBossDefeated(boss.id)){
@@ -5994,6 +6488,20 @@ import {
         if (!intersection) continue;
         ctx.fillStyle = "rgba(8,10,16,0.55)";
         fillWorldRect(intersection.x + ox, intersection.y + oy, intersection.w, intersection.h);
+      }
+
+      if (debugBounds) {
+        ctx.save();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(120,200,255,0.7)";
+        zones.forEach((zone) => {
+          ctx.strokeRect(zone.rect.x + ox, zone.rect.y + oy, zone.rect.w, zone.rect.h);
+        });
+        ctx.strokeStyle = "rgba(255,170,120,0.6)";
+        chunks.forEach((chunk) => {
+          ctx.strokeRect(chunk.rect.x + ox, chunk.rect.y + oy, chunk.rect.w, chunk.rect.h);
+        });
+        ctx.restore();
       }
 
       // HUD update handled in renderHUD()
