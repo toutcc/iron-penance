@@ -279,7 +279,7 @@ import {
   };
 
   const createDefaultGameState = () => ({
-    gold: 0,
+    gold: 500,
     questDrops: { fragment: 0 },
     quests: normalizeQuestData(),
     unlocks: normalizeUnlocks(),
