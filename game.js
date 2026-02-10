@@ -30,41 +30,22 @@ import {
     // ===== Canvas =====
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-    const BASE_W = 1280;
-    const BASE_H = 720;
-    const VIEW_W = BASE_W;
-    const VIEW_H = BASE_H;
-    const viewport = {
-      scale: 1,
-      offsetX: 0,
-      offsetY: 0,
-      dpr: window.devicePixelRatio || 1
-    };
-    const updateViewport = () => {
-      const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const displayWidth = Math.max(1, Math.floor(rect.width * dpr));
-      const displayHeight = Math.max(1, Math.floor(rect.height * dpr));
-      if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
-        canvas.width = displayWidth;
-        canvas.height = displayHeight;
-      }
-      viewport.dpr = dpr;
-      viewport.scale = Math.min(displayWidth / BASE_W, displayHeight / BASE_H);
-      const scaledW = BASE_W * viewport.scale;
-      const scaledH = BASE_H * viewport.scale;
-      viewport.offsetX = Math.floor((displayWidth - scaledW) / 2);
-      viewport.offsetY = Math.floor((displayHeight - scaledH) / 2);
+    const view = { w: 0, h: 0, dpr: 1 };
+    const resize = () => {
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      view.dpr = dpr;
+      view.w = Math.max(1, window.innerWidth);
+      view.h = Math.max(1, window.innerHeight);
+      canvas.style.width = `${view.w}px`;
+      canvas.style.height = `${view.h}px`;
+      canvas.width = Math.floor(view.w * dpr);
+      canvas.height = Math.floor(view.h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.imageSmoothingEnabled = false;
     };
   
     // ===== HUD =====
     const YSHIFT = 320;
-  const hpMasks = document.getElementById("hpMasks");
-  const staminaRow = document.getElementById("staminaRow");
-  const staminaFill = document.getElementById("staminaFill");
-  const soulsVal = document.getElementById("soulsVal");
-  const goldVal = document.getElementById("goldVal");
   const cpText = document.getElementById("cpText");
   const zoneText = document.getElementById("zoneText");
   const fpsText = document.getElementById("fpsText");
@@ -388,7 +369,7 @@ import {
     menuScreen.classList.add("hidden");
     profilesScreen.classList.add("hidden");
     gameRoot.classList.remove("hidden");
-    updateViewport();
+    resize();
     updateBossBar();
     renderHUD(true);
     inventoryOverlay.classList.add("hidden");
@@ -1113,13 +1094,14 @@ import {
     inventorySlots: gameState.inventorySlots,
     equipment: { ...gameState.equipment },
     pickupCollected: [...collectedPickups],
-    flags: {
-      bossDefeated: { ...bossDefeated },
-      bossRewardsClaimed: { ...bossRewardClaimed },
-      doorFlags: { ...doorFlags },
-      pickupsCollected: [...collectedPickups],
-      miniBossesDefeated: [...defeatedMiniBosses]
-    },
+      flags: {
+        bossDefeated: { ...bossDefeated },
+        bossRewardsClaimed: { ...bossRewardClaimed },
+        doorFlags: { ...doorFlags },
+        towerBossDefeated: isBossDefeated("warden"),
+        pickupsCollected: [...collectedPickups],
+        miniBossesDefeated: [...defeatedMiniBosses]
+      },
     playtimeSeconds,
     updatedAt: new Date().toISOString()
   });
@@ -1270,6 +1252,11 @@ import {
       }
       if (data.flags.doorFlags) {
         Object.assign(doorFlags, data.flags.doorFlags);
+      }
+      if (data.flags.towerBossDefeated) {
+        bossDefeated = { ...bossDefeated, warden: true };
+        saveBossFlagMap(bossDefeatedKey, bossDefeated);
+        doorFlags.tower_spire_gate = true;
       }
       const pickupList = Array.isArray(data.pickupCollected)
         ? data.pickupCollected
@@ -2050,16 +2037,16 @@ import {
 
   window.addEventListener("resize", () => {
     resizeMenuCanvas();
-    updateViewport();
+    resize();
   });
 
   document.addEventListener("fullscreenchange", () => {
     updatePauseOptionsValues();
-    updateViewport();
+    resize();
   });
 
   loadSettings();
-  updateViewport();
+  resize();
 
   const PRIMARY_BOSS_ID = "penitent";
   const bossDefeatedKey = "ironpenance_boss_defeated";
@@ -2745,7 +2732,7 @@ import {
       {
         id: "tower_boss",
         name: "Cume da Torre",
-        rect: { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 260 },
+        rect: { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 600 },
         isBoss: true,
         bossId: "warden"
       },
@@ -2755,6 +2742,9 @@ import {
       { id: "vault", name: "Cofre Lacrado", rect: { x: ZONE_X.vault, y: 0, w: ZONE_W.vault, h: WORLD.h } }
     ];
     const zoneMap = new Map(zones.map((zone) => [zone.id, zone]));
+    const TOWER_BOSS_ID = "warden";
+    const towerBossArena = { x: ZONE_X.tower + 1400, y: 0, w: 600, h: 600 };
+    const towerBossTrigger = { x: ZONE_X.tower + 1500, y: 260, w: 340, h: 220 };
 
 
     const offsetList = (list, dx, dy = 0) => list.map((item) => ({ ...item, x: item.x + dx, y: item.y + dy }));
@@ -3033,11 +3023,15 @@ import {
         zoneId: "tower",
         rect: { x: ZONE_X.tower, y: 0, w: 700, h: 600 },
         solids: offsetList([
-          { x: 0, y: 720 - YSHIFT, w: 900, h: 120 },
+          { x: 0, y: 720 - YSHIFT, w: 340, h: 120 },
+          { x: 500, y: 720 - YSHIFT, w: 400, h: 120 },
           { x: 140, y: 600 - YSHIFT, w: 180, h: 24, oneWay: true },
           { x: 380, y: 540 - YSHIFT, w: 200, h: 24, oneWay: true },
           { x: 80, y: 460 - YSHIFT, w: 160, h: 24, oneWay: true },
-          { x: 320, y: 400 - YSHIFT, w: 140, h: 24, oneWay: true }
+          { x: 320, y: 400 - YSHIFT, w: 140, h: 24, oneWay: true },
+          { x: 360, y: 640 - YSHIFT, w: 120, h: 16, oneWay: true },
+          { x: 380, y: 560 - YSHIFT, w: 100, h: 16, oneWay: true },
+          { x: 360, y: 480 - YSHIFT, w: 120, h: 16, oneWay: true }
         ], ZONE_X.tower),
         enemies: offsetEnemies([
           makeEnemy(260, 700 - YSHIFT, "stalker"),
@@ -3056,7 +3050,9 @@ import {
           { x: 820, y: 620 - YSHIFT, w: 200, h: 24, oneWay: true },
           { x: 1080, y: 540 - YSHIFT, w: 200, h: 24, oneWay: true },
           { x: 900, y: 460 - YSHIFT, w: 180, h: 24, oneWay: true },
-          { x: 1160, y: 380 - YSHIFT, w: 160, h: 24, oneWay: true }
+          { x: 1160, y: 380 - YSHIFT, w: 160, h: 24, oneWay: true },
+          { x: 980, y: 340 - YSHIFT, w: 160, h: 22, oneWay: true },
+          { x: 1120, y: 320 - YSHIFT, w: 140, h: 22, oneWay: true }
         ], ZONE_X.tower),
         enemies: offsetEnemies([
           makeEnemy(900, 700 - YSHIFT, "charger"),
@@ -3071,11 +3067,14 @@ import {
           { x: 1400, y: 720 - YSHIFT, w: 800, h: 120 },
           { x: 1500, y: 560 - YSHIFT, w: 220, h: 24, oneWay: true },
           { x: 1780, y: 480 - YSHIFT, w: 160, h: 24, oneWay: true },
-          { x: 1660, y: 400 - YSHIFT, w: 180, h: 24, oneWay: true }
+          { x: 1660, y: 400 - YSHIFT, w: 180, h: 24, oneWay: true },
+          { x: 1840, y: 360 - YSHIFT, w: 140, h: 22, oneWay: true },
+          { x: 1720, y: 340 - YSHIFT, w: 160, h: 22, oneWay: true }
         ], ZONE_X.tower),
         gates: [
           makeGate({ id: "tower_boss_left", type: "boss", x: ZONE_X.tower + 1460, y: 360 - YSHIFT, w: 24, h: 220 }),
           makeGate({ id: "tower_boss_right", type: "boss", x: ZONE_X.tower + 1400 + 520, y: 360 - YSHIFT, w: 24, h: 220 }),
+          makeGate({ id: "tower_spire_gate", type: "door", x: ZONE_X.tower + 1700, y: 360 - YSHIFT, w: 28, h: 380 }),
           makeGate({
             id: "tower_to_abyss",
             type: "dash",
@@ -3086,6 +3085,9 @@ import {
             h: 160
           })
         ],
+        pickups: offsetList([
+          { id: "pickup_tower_cache", type: "material", itemId: "material_iron_shard", x: 1860, y: 320 - YSHIFT }
+        ], ZONE_X.tower),
         bossSpawn: { x: ZONE_X.tower + 1400 + 320, y: 520 - YSHIFT, bossId: "warden" },
         boss: null
       },
@@ -3187,110 +3189,170 @@ import {
 
     const player = makePlayer();
     const HUD_MASK_UNIT = 20;
-    let hudMaskCount = 0;
-    let hudMasks = [];
-    let hudLastHp = null;
-    let hudLastHpMax = null;
-    let hudLastSouls = null;
-    let hudLastGold = null;
-    let hudLastSt = null;
-    let hudLastStMax = null;
+    const hudCache = {
+      hp: null,
+      hpMax: null,
+      souls: null,
+      gold: null,
+      st: null,
+      stMax: null
+    };
     let staminaHudTimer = 0;
 
-    const buildMasks = (count) => {
-      if (!hpMasks) return;
-      hpMasks.innerHTML = "";
-      hudMasks = [];
-      for (let i = 0; i < count; i++){
-        const mask = document.createElement("span");
-        mask.className = "mask empty";
-        hpMasks.appendChild(mask);
-        hudMasks.push(mask);
-      }
-      hudMaskCount = count;
-    };
-
-    const setMaskState = (mask, state) => {
-      mask.classList.remove("full", "half", "empty");
-      mask.classList.add(state);
-    };
-
-    const updateMaskStates = () => {
-      if (!hpMasks) return;
-      const maskCount = Math.max(1, Math.ceil(player.hpMax / HUD_MASK_UNIT));
-      if (maskCount !== hudMaskCount) {
-        buildMasks(maskCount);
-      }
-      const rawMasks = Math.max(0, player.hp / HUD_MASK_UNIT);
-      const fullCount = Math.min(maskCount, Math.floor(rawMasks));
-      const hasHalf = rawMasks - fullCount >= 0.5 && fullCount < maskCount;
-      hudMasks.forEach((mask, index) => {
-        if (index < fullCount) {
-          setMaskState(mask, "full");
-        } else if (index === fullCount && hasHalf) {
-          setMaskState(mask, "half");
-        } else {
-          setMaskState(mask, "empty");
-        }
-      });
-    };
-
-    const animateMask = (index, type) => {
-      const mask = hudMasks[index];
-      if (!mask) return;
-      mask.classList.remove("damage", "heal");
-      void mask.offsetWidth;
-      mask.classList.add(type);
-    };
-
     const renderHUD = (force = false) => {
-      if (!hpMasks) return;
-      const hpChanged = force || player.hp !== hudLastHp || player.hpMax !== hudLastHpMax;
-      if (hpChanged) {
-        updateMaskStates();
-        hudLastHp = player.hp;
-        hudLastHpMax = player.hpMax;
-      }
-      if (soulsVal && (force || player.souls !== hudLastSouls)) {
-        soulsVal.textContent = `${player.souls}`;
-        hudLastSouls = player.souls;
-      }
-      if (goldVal && (force || gameState.gold !== hudLastGold)) {
-        goldVal.textContent = `${gameState.gold}`;
-        hudLastGold = gameState.gold;
-      }
-      if (staminaFill && (force || player.st !== hudLastSt || player.stMax !== hudLastStMax)) {
-        staminaFill.style.width = `${(player.st / player.stMax) * 100}%`;
-        hudLastSt = player.st;
-        hudLastStMax = player.stMax;
-      }
-      if (staminaRow) {
-        const show = staminaHudTimer > 0;
-        staminaRow.classList.toggle("show", show);
-        staminaRow.setAttribute("aria-hidden", show ? "false" : "true");
-      }
+      if (force || player.hp !== hudCache.hp) hudCache.hp = player.hp;
+      if (force || player.hpMax !== hudCache.hpMax) hudCache.hpMax = player.hpMax;
+      if (force || player.souls !== hudCache.souls) hudCache.souls = player.souls;
+      if (force || gameState.gold !== hudCache.gold) hudCache.gold = gameState.gold;
+      if (force || player.st !== hudCache.st) hudCache.st = player.st;
+      if (force || player.stMax !== hudCache.stMax) hudCache.stMax = player.stMax;
     };
 
     const triggerStaminaHud = () => {
       staminaHudTimer = 1.5;
-      renderHUD();
+    };
+
+    const drawHUD = () => {
+      const w = view.w;
+      const h = view.h;
+      const uiScale = Math.max(1, Math.min(1.6, Math.min(w, h) / 900));
+      const padding = Math.round(24 * uiScale);
+      const maskSize = Math.round(30 * uiScale);
+      const maskGap = Math.round(6 * uiScale);
+      const maskCount = Math.max(1, Math.ceil(player.hpMax / HUD_MASK_UNIT));
+      const rawMasks = Math.max(0, player.hp / HUD_MASK_UNIT);
+      const fullCount = Math.floor(rawMasks);
+      const hasHalf = rawMasks - fullCount >= 0.5 && fullCount < maskCount;
+      const borderWidth = Math.max(1, Math.round(2 * uiScale));
+
+      ctx.save();
+      ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+
+      const drawMask = (x, y, state) => {
+        const cx = x + maskSize / 2;
+        const cy = y + maskSize / 2;
+        const rx = maskSize * 0.55;
+        const ry = maskSize * 0.45;
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.fillStyle = state === "full" ? "rgba(245,247,255,0.95)" : "rgba(20,24,36,0.75)";
+        ctx.fill();
+        if (state === "half") {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, maskSize / 2, maskSize);
+          ctx.clip();
+          ctx.fillStyle = "rgba(245,247,255,0.95)";
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.strokeStyle = "rgba(255,255,255,0.45)";
+        ctx.lineWidth = borderWidth;
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      let x = padding;
+      let y = padding;
+      for (let i = 0; i < maskCount; i++) {
+        let state = "empty";
+        if (i < fullCount) state = "full";
+        else if (i === fullCount && hasHalf) state = "half";
+        drawMask(x, y, state);
+        x += maskSize + maskGap;
+      }
+
+      ctx.font = `${Math.round(14 * uiScale)}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+      ctx.fillStyle = "rgba(230,236,255,0.85)";
+      ctx.fillText(`${Math.ceil(player.hp)}/${player.hpMax}`, padding, y + maskSize + Math.round(16 * uiScale));
+
+      const staminaVisible = staminaHudTimer > 0 || player.st < player.stMax;
+      if (staminaVisible) {
+        const barY = y + maskSize + Math.round(26 * uiScale);
+        const barW = Math.round(110 * uiScale);
+        const barH = Math.round(6 * uiScale);
+        ctx.fillStyle = "rgba(10,12,18,0.7)";
+        ctx.fillRect(padding, barY, barW, barH);
+        ctx.fillStyle = "rgba(120,235,190,0.9)";
+        ctx.fillRect(padding, barY, barW * (player.st / player.stMax), barH);
+        ctx.strokeStyle = "rgba(255,255,255,0.2)";
+        ctx.lineWidth = Math.max(1, Math.round(1 * uiScale));
+        ctx.strokeRect(padding, barY, barW, barH);
+      }
+
+      const iconSize = Math.round(22 * uiScale);
+      const statFont = Math.round(22 * uiScale);
+      const statGap = Math.round(10 * uiScale);
+      const statY = y + maskSize + Math.round(52 * uiScale);
+
+      const drawOrb = (xPos, yPos, colorStops, label) => {
+        const r = iconSize / 2;
+        const grad = ctx.createRadialGradient(xPos + r * 0.4, yPos + r * 0.4, r * 0.2, xPos + r, yPos + r, r);
+        colorStops.forEach(([stop, color]) => grad.addColorStop(stop, color));
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.ellipse(xPos + r, yPos + r, r, r, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.font = `${Math.round(12 * uiScale)}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+        ctx.textAlign = "center";
+        ctx.fillText(label, xPos + r, yPos + r + 1 * uiScale);
+        ctx.textAlign = "left";
+      };
+
+      drawOrb(padding, statY, [
+        [0, "rgba(240,245,255,0.95)"],
+        [0.5, "rgba(160,200,230,0.65)"],
+        [1, "rgba(60,80,120,0.55)"]
+      ], "☠");
+      ctx.fillStyle = "#f1f4ff";
+      ctx.font = `${statFont}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+      ctx.fillText(`${player.souls}`, padding + iconSize + statGap, statY + iconSize / 2);
+
+      const goldY = statY + iconSize + Math.round(8 * uiScale);
+      drawOrb(padding, goldY, [
+        [0, "rgba(255,235,170,0.95)"],
+        [0.55, "rgba(230,180,80,0.85)"],
+        [1, "rgba(160,110,40,0.8)"]
+      ], "⛁");
+      ctx.fillStyle = "#f6e6b8";
+      ctx.font = `${statFont}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+      ctx.fillText(`${gameState.gold}`, padding + iconSize + statGap, goldY + iconSize / 2);
+
+      ctx.restore();
+    };
+
+    const drawVignette = () => {
+      const w = view.w;
+      const h = view.h;
+      ctx.save();
+      ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+      const g = ctx.createRadialGradient(
+        w * 0.5,
+        h * 0.55,
+        Math.min(w, h) * 0.15,
+        w * 0.5,
+        h * 0.55,
+        Math.max(w, h) * 0.75
+      );
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, "rgba(0,0,0,0.7)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
     };
 
     const setHP = (newHP, options = {}) => {
       const prev = player.hp;
       player.hp = clamp(newHP, 0, player.hpMax);
       if (!options.silent && player.hp !== prev) {
-        const maskCount = Math.max(1, Math.ceil(player.hpMax / HUD_MASK_UNIT));
-        if (maskCount !== hudMaskCount) {
-          buildMasks(maskCount);
-        }
-        if (player.hp < prev) {
-          const index = Math.max(0, Math.min(maskCount - 1, Math.ceil(prev / HUD_MASK_UNIT) - 1));
-          animateMask(index, "damage");
-        } else if (player.hp > prev) {
-          const index = Math.max(0, Math.min(maskCount - 1, Math.ceil(player.hp / HUD_MASK_UNIT) - 1));
-          animateMask(index, "heal");
-        }
+        renderHUD(true);
       }
       renderHUD(true);
     };
@@ -3305,8 +3367,8 @@ import {
         y: 700 - YSHIFT,
         w: 160,
         h: 20,
-        minY: 420 - YSHIFT,
-        maxY: 700 - YSHIFT,
+        minY: 360 - YSHIFT,
+        maxY: 980 - YSHIFT,
         speed: 70,
         dir: -1,
         startY: 700 - YSHIFT,
@@ -3328,7 +3390,8 @@ import {
     let activeNpcs = [];
     const activeChunks = new Set();
     const doorFlags = {
-      hub_shortcut: false
+      hub_shortcut: false,
+      tower_spire_gate: false
     };
 
     // ===== Inventory State =====
@@ -4044,7 +4107,7 @@ import {
         toast(`Zona: ${zone.name}`);
         updateReachQuests(zone.id);
       }
-      if (zone?.isBoss && zone.bossId) {
+      if (zone?.isBoss && zone.bossId && zone.bossId !== TOWER_BOSS_ID) {
         const bossState = getBossState(zone.bossId);
         if (bossState === "idle" || bossState === "despawned") {
           spawnBossEncounter(zone.bossId);
@@ -4055,7 +4118,7 @@ import {
           bossArenaLocked = false;
           if (bossBar) bossBar.classList.add("hidden");
         }
-      } else if (bossActive && currentBossId) {
+      } else if (bossActive && currentBossId && currentBossId !== TOWER_BOSS_ID) {
         despawnBossEncounter(currentBossId);
       }
       if (zone && !visitedZones.has(zone.id)) {
@@ -4063,6 +4126,20 @@ import {
       }
       if (zoneText && !zoneText.textContent && currentZone) {
         zoneText.textContent = currentZone.name;
+      }
+    };
+
+    const updateTowerBossEncounter = () => {
+      if (isBossDefeated(TOWER_BOSS_ID)) return;
+      const playerRect = { x: player.x, y: player.y, w: player.w, h: player.h };
+      const inTrigger = rectsOverlap(playerRect, towerBossTrigger);
+      const inArena = rectsOverlap(playerRect, towerBossArena);
+      if (inTrigger && (!bossActive || currentBossId !== TOWER_BOSS_ID)) {
+        spawnBossEncounter(TOWER_BOSS_ID);
+        return;
+      }
+      if (!inArena && bossActive && currentBossId === TOWER_BOSS_ID) {
+        despawnBossEncounter(TOWER_BOSS_ID);
       }
     };
 
@@ -4197,24 +4274,24 @@ import {
     function centerCamera(){
       const centerX = player.x + player.w / 2;
       const centerY = player.y + player.h / 2;
-      const deadLeft = cam.x + (VIEW_W - CAMERA_DEADZONE.w) / 2;
-      const deadRight = cam.x + (VIEW_W + CAMERA_DEADZONE.w) / 2;
-      const deadTop = cam.y + (VIEW_H - CAMERA_DEADZONE.h) / 2;
-      const deadBottom = cam.y + (VIEW_H + CAMERA_DEADZONE.h) / 2;
+      const deadLeft = cam.x + (view.w - CAMERA_DEADZONE.w) / 2;
+      const deadRight = cam.x + (view.w + CAMERA_DEADZONE.w) / 2;
+      const deadTop = cam.y + (view.h - CAMERA_DEADZONE.h) / 2;
+      const deadBottom = cam.y + (view.h + CAMERA_DEADZONE.h) / 2;
       let targetX = cam.x;
       let targetY = cam.y;
       if (centerX < deadLeft) {
-        targetX = centerX - (VIEW_W - CAMERA_DEADZONE.w) / 2;
+        targetX = centerX - (view.w - CAMERA_DEADZONE.w) / 2;
       } else if (centerX > deadRight) {
-        targetX = centerX - (VIEW_W + CAMERA_DEADZONE.w) / 2;
+        targetX = centerX - (view.w + CAMERA_DEADZONE.w) / 2;
       }
       if (centerY < deadTop) {
-        targetY = centerY - (VIEW_H - CAMERA_DEADZONE.h) / 2;
+        targetY = centerY - (view.h - CAMERA_DEADZONE.h) / 2;
       } else if (centerY > deadBottom) {
-        targetY = centerY - (VIEW_H + CAMERA_DEADZONE.h) / 2;
+        targetY = centerY - (view.h + CAMERA_DEADZONE.h) / 2;
       }
-      cam.x = clamp(lerp(cam.x, targetX, CAMERA_LERP), 0, Math.max(0, level.w - VIEW_W));
-      cam.y = clamp(lerp(cam.y, targetY, CAMERA_LERP), 0, Math.max(0, level.h - VIEW_H));
+      cam.x = clamp(lerp(cam.x, targetX, CAMERA_LERP), 0, Math.max(0, level.w - view.w));
+      cam.y = clamp(lerp(cam.y, targetY, CAMERA_LERP), 0, Math.max(0, level.h - view.h));
     }
   
     // ===== Physics / Collision =====
@@ -5027,7 +5104,14 @@ import {
           }
         }
         updateBossBar();
-        toast(`Boss derrotado! Ouro +${rewardGold}.`);
+        let toastMsg = `Boss derrotado! Ouro +${rewardGold}.`;
+        if (boss.id === "warden") {
+          doorFlags.tower_spire_gate = true;
+          const bonusSouls = 120;
+          player.souls += bonusSouls;
+          toastMsg = `Vigia derrotado! Ouro +${rewardGold} • Souls +${bonusSouls}.`;
+        }
+        toast(toastMsg);
         requestSave("boss");
         return { hit: true, killed: true };
       }
@@ -5276,6 +5360,7 @@ import {
         if (chunk.drops) chunk.drops.length = 0;
       });
       doorFlags.hub_shortcut = false;
+      doorFlags.tower_spire_gate = false;
       bossActive = false;
       bossArenaLocked = false;
       currentBossId = PRIMARY_BOSS_ID;
@@ -5341,7 +5426,11 @@ import {
 
       updateActiveChunks();
       updateZoneState();
+      updateTowerBossEncounter();
       syncBossArenaState();
+      if (isBossDefeated("warden")) {
+        doorFlags.tower_spire_gate = true;
+      }
       if (boss && bossActive && !isBossDefeated(boss.id)) {
         bossArenaLocked = true;
       } else {
@@ -5642,12 +5731,11 @@ import {
     // ===== Render =====
     function draw(){
       // background
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
       ctx.imageSmoothingEnabled = false;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, view.w, view.h);
       ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
+      ctx.fillRect(0, 0, view.w, view.h);
       const fillWorldRect = (x, y, w, h) => {
         ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
       };
@@ -5661,11 +5749,11 @@ import {
       const oy = -Math.floor(cam.y + shakeY);
   
       // Sky gradient
-      const g = ctx.createLinearGradient(0, 0, 0, VIEW_H);
+      const g = ctx.createLinearGradient(0, 0, 0, view.h);
       g.addColorStop(0, "#0b1020");
       g.addColorStop(1, "#07080f");
       ctx.fillStyle = g;
-      fillWorldRect(0, 0, VIEW_W, VIEW_H);
+      fillWorldRect(0, 0, view.w, view.h);
   
       // distant silhouettes
       ctx.globalAlpha = 0.20;
@@ -5899,31 +5987,34 @@ import {
         ctx.strokeRect(ah.x + ox, ah.y + oy, ah.w, ah.h);
       }
   
-      const viewRect = { x: cam.x, y: cam.y, w: VIEW_W, h: VIEW_H };
+      const viewRect = { x: cam.x, y: cam.y, w: view.w, h: view.h };
       for (const zone of zones){
         if (visitedZones.has(zone.id)) continue;
         const intersection = intersectRect(viewRect, zone.rect);
         if (!intersection) continue;
         ctx.fillStyle = "rgba(8,10,16,0.55)";
-        fillWorldRect(intersection.x - cam.x, intersection.y - cam.y, intersection.w, intersection.h);
+        fillWorldRect(intersection.x + ox, intersection.y + oy, intersection.w, intersection.h);
       }
 
       // HUD update handled in renderHUD()
 
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      drawVignette();
+      drawHUD();
+
+      ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
 
       if (deathFade.t > 0){
         const progress = 1 - (deathFade.t / deathFade.duration);
         const alpha = progress < 0.5 ? (progress / 0.5) : ((1 - progress) / 0.5);
         ctx.fillStyle = `rgba(0,0,0,${Math.min(1, Math.max(0, alpha))})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, view.w, view.h);
       }
 
       if (bossDefeatFlash.t > 0){
         const progress = 1 - (bossDefeatFlash.t / bossDefeatFlash.duration);
         const alpha = progress < 0.4 ? (progress / 0.4) : ((1 - progress) / 0.6);
         ctx.fillStyle = `rgba(255,245,230,${Math.min(0.8, Math.max(0, alpha))})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, view.w, view.h);
       }
     }
   
