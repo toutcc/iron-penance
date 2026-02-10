@@ -2127,6 +2127,7 @@ import {
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const lerp = (a,b,t) => a + (b-a)*t;
     const randRange = (min, max) => min + Math.random() * (max - min);
+    const randInt = (min, max) => Math.floor(randRange(min, max + 1));
     const sign = (x) => (x < 0 ? -1 : x > 0 ? 1 : 0);
     const now = () => performance.now();
 
@@ -3552,13 +3553,33 @@ import {
         startDir: -1
       }
     ];
+    const MAX_VERTICAL_COLLIDER_WIDTH = 12;
+    const MAX_VERTICAL_COLLIDER_HEIGHT = 220;
+    const normalizeVerticalSolid = (solid) => {
+      if (!solid || solid.gate) return solid;
+      if (solid.w <= 20 && solid.h > 60) {
+        const screenH = view.h || 600;
+        const tooTall = solid.h > screenH * 0.8;
+        let newH = Math.min(solid.h, MAX_VERTICAL_COLLIDER_HEIGHT);
+        if (tooTall) {
+          console.warn("Vertical collider too tall, trimming.", { x: solid.x, y: solid.y, w: solid.w, h: solid.h });
+          newH = Math.min(newH, Math.floor(screenH * 0.8));
+        }
+        const newW = Math.min(solid.w, MAX_VERTICAL_COLLIDER_WIDTH);
+        if (newH !== solid.h || newW !== solid.w) {
+          const bottom = solid.y + solid.h;
+          return { ...solid, w: newW, h: newH, y: bottom - newH };
+        }
+      }
+      return solid;
+    };
     const worldSolids = [
       ...chunks.flatMap((chunk) => chunk.solids || []),
       ...towerPlatforms,
       ...towerWalls,
       ...worldGates,
       ...movingPlatforms
-    ];
+    ].map(normalizeVerticalSolid);
     const uniqueSolids = [];
     const solidSet = new Set();
     worldSolids.forEach((solid) => {
@@ -4821,10 +4842,28 @@ import {
     }
 
     // ===== Items & Drops =====
+    const MAX_DROPS_ON_GROUND = 20;
+    let dropCounter = 0;
+    const pruneDropsOnGround = () => {
+      const allDrops = [];
+      chunks.forEach((chunk) => {
+        chunk.drops?.forEach((drop) => {
+          if (!drop?.active) return;
+          allDrops.push({ drop });
+        });
+      });
+      if (allDrops.length <= MAX_DROPS_ON_GROUND) return;
+      allDrops.sort((a, b) => (a.drop.createdAt || 0) - (b.drop.createdAt || 0));
+      const excess = allDrops.length - MAX_DROPS_ON_GROUND;
+      for (let i = 0; i < excess; i += 1) {
+        allDrops[i].drop.active = false;
+      }
+    };
     function createChunkDrop(chunk, drop){
       if (!chunk) return;
       if (!chunk.drops) chunk.drops = [];
-      chunk.drops.push({ ...drop, active: true });
+      chunk.drops.push({ ...drop, active: true, createdAt: ++dropCounter });
+      pruneDropsOnGround();
     }
 
     const rollLoot = (tableKey, luck = 0, options = {}) => {
@@ -4874,25 +4913,23 @@ import {
       if (!chunk) return;
       const dropX = enemy.x + enemy.w / 2 - 10;
       const dropY = enemy.y + enemy.h - 18;
-      const souls = Math.max(10, Math.round(getEnemySoulValue(enemy) * 0.25));
+      const souls = randInt(2, 8);
       createChunkDrop(chunk, { x: dropX, y: dropY, type: "souls", amount: souls });
-      const gold = Math.max(4, Math.round(getEnemySoulValue(enemy) * 0.12));
-      createChunkDrop(chunk, { x: dropX + 16, y: dropY, type: "gold", amount: gold });
-      if (Math.random() <= 0.2) {
-        createChunkDrop(chunk, { x: dropX + 6, y: dropY - 10, type: "quest", itemId: "fragment" });
+      if (Math.random() <= 0.35) {
+        const gold = randInt(1, 4);
+        createChunkDrop(chunk, { x: dropX + 16, y: dropY, type: "gold", amount: gold });
       }
-
-      const uniqueRoll = Math.random() <= 0.01;
+      const uniqueRoll = Math.random() <= 0.002;
       if (uniqueRoll) {
         const uniqueEntry = rollLoot(zoneKey, 0, { uniqueOnly: true });
         if (uniqueEntry && shouldGrantUnique(uniqueEntry.id)) {
           applyLootReward(chunk, dropX - 12, dropY - 6, uniqueEntry);
-          return;
         }
+        return;
       }
 
-      const rareRoll = Math.random() <= 0.08;
-      const commonRoll = Math.random() <= 0.3;
+      const rareRoll = Math.random() <= 0.02;
+      const commonRoll = Math.random() <= 0.12;
       if (rareRoll || commonRoll) {
         const entry = rollLoot(zoneKey, 0, { nonUniqueOnly: true });
         if (entry) applyLootReward(chunk, dropX - 6, dropY - 6, entry);
@@ -4900,8 +4937,10 @@ import {
     };
 
     const handleEnemyKilled = (enemy) => {
+      if (!enemy || enemy.dropDone) return;
+      enemy.dropDone = true;
       const chunk = getChunkForPosition(enemy.x, enemy.y);
-      if (!chunk || !enemy) return;
+      if (!chunk) return;
       if (enemy.spawnId && enemy.spawnChunkId) {
         const spawnChunk = chunks.find((item) => item.id === enemy.spawnChunkId);
         const spawn = spawnChunk?.spawns?.find((item) => item.id === enemy.spawnId);
